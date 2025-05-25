@@ -103,6 +103,57 @@ export class FormattedString
   constructor(public rawText: string, rawEntities?: MessageEntity[]) {
     this.rawEntities = rawEntities ?? [];
   }
+  
+  /**
+   * Joins an array of FormattedString, TextWithEntities, CaptionWithEntities, or string into a single FormattedString
+   * @param parts Array of FormattedString, TextWithEntities, CaptionWithEntities, or string to join
+   * @returns A new FormattedString that is the concatenation of all parts with preserved entities
+   * 
+   * @example
+   * ```typescript
+   * const part1 = FormattedString.bold("Bold text");
+   * const part2 = { text: " and ", entities: [] };
+   * const part3 = FormattedString.italic("italic text");
+   * 
+   * const combined = FormattedString.join([part1, part2, part3]);
+   * // Result will have "Bold text and italic text" with proper bold and italic entities
+   * ```
+   */
+  static join(parts: (TextWithEntities | CaptionWithEntities | string)[]) {
+    let rawText = "";
+    const rawEntities: MessageEntity[] = [];
+    
+    for (const part of parts) {
+      if (typeof part === "object" && "text" in part) {
+        // Handle TextWithEntities
+        rawText += part.text;
+        if (part.entities && part.entities.length > 0) {
+          rawEntities.push(
+            ...part.entities.map(e => ({
+              ...e,
+              offset: rawText.length - part.text.length + e.offset
+            }))
+          );
+        }
+      } else if (typeof part === "object" && "caption" in part) {
+        // Handle CaptionWithEntities
+        rawText += part.caption;
+        if (part.caption_entities && part.caption_entities.length > 0) {
+          rawEntities.push(
+            ...part.caption_entities.map(e => ({
+              ...e,
+              offset: rawText.length - part.caption.length + e.offset
+            }))
+          );
+        }
+      } else {
+        // Handle string or Stringable
+        rawText += String(part);
+      }
+    }
+    
+    return new FormattedString(rawText, rawEntities);
+  }
 
   /**
    * Gets the caption text. This is an alias for the raw text content.
