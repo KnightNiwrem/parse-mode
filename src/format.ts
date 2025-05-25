@@ -105,31 +105,41 @@ export class FormattedString
   }
   
   /**
-   * Joins an array of FormattedString, TextWithEntities, CaptionWithEntities, or string into a single FormattedString
-   * @param parts Array of FormattedString, TextWithEntities, CaptionWithEntities, or string to join
-   * @returns A new FormattedString that is the concatenation of all parts with preserved entities
+   * Joins an array of formatted strings, text with entities, caption with entities, or plain strings.
+   * 
+   * @param parts Array of items to join (FormattedString, TextWithEntities, CaptionWithEntities, or string)
+   * @returns A new FormattedString combining all parts with preserved entity formatting
    * 
    * @example
    * ```typescript
-   * const part1 = FormattedString.bold("Bold text");
-   * const part2 = { text: " and ", entities: [] };
-   * const part3 = FormattedString.italic("italic text");
-   * 
-   * const combined = FormattedString.join([part1, part2, part3]);
-   * // Result will have "Bold text and italic text" with proper bold and italic entities
+   * // Join multiple formatted elements
+   * const bold = FormattedString.bold("Bold");
+   * const italic = FormattedString.italic("Italic");
+   * const combined = FormattedString.join([bold, " and ", italic]);
    * ```
    */
-  static join(parts: (TextWithEntities | CaptionWithEntities | string)[]) {
+  static join(parts: (FormattedString | TextWithEntities | CaptionWithEntities | string)[]) {
     let rawText = "";
     const rawEntities: MessageEntity[] = [];
     
     for (const part of parts) {
-      if (typeof part === "object" && "text" in part) {
+      if (part instanceof FormattedString) {
+        // Handle FormattedString
+        rawText += part.rawText;
+        if (part.rawEntities.length > 0) {
+          rawEntities.push(
+            ...part.rawEntities.map((e: MessageEntity) => ({
+              ...e,
+              offset: rawText.length - part.rawText.length + e.offset
+            }))
+          );
+        }
+      } else if (typeof part === "object" && "text" in part) {
         // Handle TextWithEntities
         rawText += part.text;
         if (part.entities && part.entities.length > 0) {
           rawEntities.push(
-            ...part.entities.map(e => ({
+            ...part.entities.map((e: MessageEntity) => ({
               ...e,
               offset: rawText.length - part.text.length + e.offset
             }))
@@ -140,7 +150,7 @@ export class FormattedString
         rawText += part.caption;
         if (part.caption_entities && part.caption_entities.length > 0) {
           rawEntities.push(
-            ...part.caption_entities.map(e => ({
+            ...part.caption_entities.map((e: MessageEntity) => ({
               ...e,
               offset: rawText.length - part.caption.length + e.offset
             }))

@@ -695,17 +695,10 @@ Deno.test("FormattedString - Multiple entities", () => {
 
 Deno.test("FormattedString - Static join method with mixed input types", () => {
   // Create a FormattedString with bold formatting
-  const boldText = new FormattedString("Bold text", [
-    { type: "bold", offset: 0, length: 9 },
-  ]);
+  const boldText = FormattedString.bold("Bold text");
   
   // Plain text
   const plainText = " and ";
-  
-  // Create a FormattedString with italic formatting
-  const italicText = new FormattedString("italic text", [
-    { type: "italic", offset: 0, length: 11 },
-  ]);
   
   // Create a TextWithEntities object
   const textWithEntities = { text: " with ", entities: [] };
@@ -720,31 +713,25 @@ Deno.test("FormattedString - Static join method with mixed input types", () => {
   const combined = FormattedString.join([
     boldText,
     plainText,
-    italicText,
     textWithEntities,
     captionWithEntities
   ]);
   
   assertInstanceOf(combined, FormattedString);
-  assertEquals(combined.rawText, "Bold text and italic text with caption");
+  assertEquals(combined.rawText, "Bold text and  with caption");
   
   // Test entity count and properties
-  assertEquals(combined.rawEntities.length, 3);
+  assertEquals(combined.rawEntities.length, 2);
   
   // Test bold entity
   assertEquals(combined.rawEntities[0]?.type, "bold");
   assertEquals(combined.rawEntities[0]?.offset, 0);
   assertEquals(combined.rawEntities[0]?.length, 9); // "Bold text"
   
-  // Test italic entity
-  assertEquals(combined.rawEntities[1]?.type, "italic");
-  assertEquals(combined.rawEntities[1]?.offset, 14); // After "Bold text and "
-  assertEquals(combined.rawEntities[1]?.length, 11); // "italic text"
-  
   // Test underline entity from captionWithEntities
-  assertEquals(combined.rawEntities[2]?.type, "underline");
-  assertEquals(combined.rawEntities[2]?.offset, 31); // After "Bold text and italic text with "
-  assertEquals(combined.rawEntities[2]?.length, 7); // "caption"
+  assertEquals(combined.rawEntities[1]?.type, "underline");
+  assertEquals(combined.rawEntities[1]?.offset, 20); // After "Bold text and  with "
+  assertEquals(combined.rawEntities[1]?.length, 7); // "caption"
 });
 
 Deno.test("FormattedString - Static join method with empty array", () => {
@@ -761,4 +748,30 @@ Deno.test("FormattedString - Static join method with only strings", () => {
   assertInstanceOf(combined, FormattedString);
   assertEquals(combined.rawText, "Hello World");
   assertEquals(combined.rawEntities.length, 0);
+});
+
+Deno.test("FormattedString - Static join method with FormattedString objects", () => {
+  // Create FormattedString objects with different formatting
+  const boldText = FormattedString.bold("Bold text");
+  const plainText = " and ";
+  const italicText = FormattedString.italic("italic text");
+  
+  // Join FormattedString objects
+  const combined = FormattedString.join([boldText, plainText, italicText]);
+  
+  assertInstanceOf(combined, FormattedString);
+  assertEquals(combined.rawText, "Bold text and italic text");
+  
+  // Test entity count and properties
+  assertEquals(combined.rawEntities.length, 2);
+  
+  // Test bold entity
+  assertEquals(combined.rawEntities[0]?.type, "bold");
+  assertEquals(combined.rawEntities[0]?.offset, 0);
+  assertEquals(combined.rawEntities[0]?.length, 9); // "Bold text"
+  
+  // Test italic entity
+  assertEquals(combined.rawEntities[1]?.type, "italic");
+  assertEquals(combined.rawEntities[1]?.offset, 14); // After "Bold text and "
+  assertEquals(combined.rawEntities[1]?.length, 11); // "italic text"
 });
