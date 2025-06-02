@@ -624,13 +624,13 @@ export class FormattedString
   private entitiesPropertiesMatch(entity1: MessageEntity, entity2: MessageEntity): boolean {
     // Check type-specific properties
     if (entity1.type === "text_link" && entity2.type === "text_link") {
-      return (entity1 as any).url === (entity2 as any).url;
+      return (entity1 as MessageEntity & { url: string }).url === (entity2 as MessageEntity & { url: string }).url;
     }
     if (entity1.type === "pre" && entity2.type === "pre") {
-      return (entity1 as any).language === (entity2 as any).language;
+      return (entity1 as MessageEntity & { language?: string }).language === (entity2 as MessageEntity & { language?: string }).language;
     }
     if (entity1.type === "text_mention" && entity2.type === "text_mention") {
-      return (entity1 as any).user === (entity2 as any).user;
+      return (entity1 as MessageEntity & { user: unknown }).user === (entity2 as MessageEntity & { user: unknown }).user;
     }
     
     // For other types, no additional properties to check

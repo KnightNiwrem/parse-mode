@@ -847,19 +847,19 @@ Deno.test("FormattedString - find method with complex entities", () => {
   // Create haystack with overlapping and multiple entities
   const haystack = new FormattedString("Visit our website for more info", [
     { type: "bold", offset: 0, length: 5 },        // "Visit"
-    { type: "text_link", offset: 10, length: 7, url: "https://example.com" as any }, // "website"
+    { type: "text_link", offset: 10, length: 7, url: "https://example.com" } as MessageEntity, // "website"
     { type: "italic", offset: 26, length: 4 }      // "info"
   ]);
 
   // Test finding link with correct URL
   const linkNeedle = new FormattedString("website", [
-    { type: "text_link", offset: 0, length: 7, url: "https://example.com" as any }
+    { type: "text_link", offset: 0, length: 7, url: "https://example.com" } as MessageEntity
   ]);
   assertEquals(haystack.find(linkNeedle), 10);
 
   // Test finding link with wrong URL
   const wrongLinkNeedle = new FormattedString("website", [
-    { type: "text_link", offset: 0, length: 7, url: "https://wrong.com" as any }
+    { type: "text_link", offset: 0, length: 7, url: "https://wrong.com" } as MessageEntity
   ]);
   assertEquals(haystack.find(wrongLinkNeedle), -1);
 
