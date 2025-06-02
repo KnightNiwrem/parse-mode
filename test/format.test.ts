@@ -803,6 +803,8 @@ Deno.test("FormattedString - Static join method", () => {
 
   // Test second entity from CaptionWithEntities
   assertEquals(combinedResult.rawEntities[1]?.type, "italic");
+  assertEquals(combinedResult.rawEntities[1]?.offset, 28); // After "Start: TextWithEntities and "
+  assertEquals(combinedResult.rawEntities[1]?.length, 7); // "Caption"
 });
 
 // --- replace and replaceAll Tests ---
@@ -1139,9 +1141,6 @@ Deno.test("FormattedString.replaceAll - Complex scenario with multiple entity ty
         { type: "italic", offset: 13, length: 2 }, // "I1"
         { type: "bold", offset: 24, length: 2 },  // "B2"
     ]);
-});
-  assertEquals(combinedResult.rawEntities[1]?.offset, 28); // After "Start: TextWithEntities and "
-  assertEquals(combinedResult.rawEntities[1]?.length, 7); // "Caption"
 });
 
 // --- findAll Tests ---
