@@ -506,6 +506,256 @@ export class FormattedString
   plain(text: string) {
     return fmt`${this}${text}`;
   }
+
+  /**
+   * Replaces the first occurrence of a search string with a replacement string.
+   *
+   * @param searchText The text to search for (can be a FormattedString or plain string).
+   * @param replacementText The text to replace with (can be a FormattedString or plain string).
+   * @returns A new FormattedString with the replacement made.
+   */
+  replace(
+    searchText: FormattedString | string,
+    replacementText: FormattedString | string,
+  ): FormattedString {
+    // TODO: Implement logic
+    // 1. Find the first occurrence of searchText in this.rawText.
+    //    - If searchText is a FormattedString, its formatting should ideally be considered for an exact match,
+    //      but a simpler version might just use its rawText.
+    // 2. If not found, return a new FormattedString identical to the current one.
+    // 3. If found, construct the new rawText:
+    //    - Text before the match.
+    //    - replacementText (if it's a FormattedString, use its rawText).
+    //    - Text after the match.
+    // 4. Adjust entities:
+    //    - Entities before the match remain as is.
+    //    - Entities within the matched searchText are removed.
+    //    - Entities from replacementText (if it's a FormattedString) are added, with their offsets adjusted
+    //      to be relative to the start of the new rawText.
+    //    - Entities after the match need their offsets adjusted based on the length difference between
+    //      searchText and replacementText.
+    // 5. Handle exact formatting matches: This is complex. If searchText is a FormattedString,
+    //    a true "exact match" would mean that the formatting entities covering the searchText
+    //    in the original string align perfectly with the entities of the searchText itself.
+    //    This would require a deep comparison of entity types, offsets, and lengths.
+    //    A simpler approach is to ignore the formatting of searchText for matching purposes and only consider its rawText.
+    // Convert string inputs to FormattedString instances for uniform handling
+    const searchFS = typeof searchText === "string"
+      ? new FormattedString(searchText)
+      : searchText;
+    const replaceWithFS = typeof replacementText === "string"
+      ? new FormattedString(replacementText)
+      : replacementText;
+
+    if (searchFS.rawText.length === 0) {
+      return new FormattedString(this.rawText, [...this.rawEntities]); // Return a clone
+    }
+
+    const occurrences = this.findAll(searchFS);
+    if (occurrences.length === 0) {
+      return new FormattedString(this.rawText, [...this.rawEntities]); // Return a clone
+    }
+
+    const firstOccurrence = occurrences[0];
+    const { startIndex, endIndex } = firstOccurrence;
+
+    const textBefore = this.rawText.substring(0, startIndex);
+    const textAfter = this.rawText.substring(endIndex);
+    const newRawText = textBefore + replaceWithFS.rawText + textAfter;
+
+    const newEntities: MessageEntity[] = [];
+    const lengthDifference = replaceWithFS.rawText.length -
+      searchFS.rawText.length;
+
+    // Entities before the replacement
+    this.rawEntities.forEach((entity) => {
+      if (entity.offset + entity.length <= startIndex) {
+        newEntities.push({ ...entity });
+      }
+    });
+
+    // Entities from replacementText
+    replaceWithFS.rawEntities.forEach((entity) => {
+      newEntities.push({
+        ...entity,
+        offset: entity.offset + startIndex,
+      });
+    });
+
+    // Entities after the replacement
+    this.rawEntities.forEach((entity) => {
+      if (entity.offset >= endIndex) {
+        newEntities.push({ ...entity, offset: entity.offset + lengthDifference });
+      }
+    });
+
+    // Sort entities: by offset, then by length (descending for outer entities first)
+    newEntities.sort((a, b) => {
+        if (a.offset !== b.offset) return a.offset - b.offset;
+        return b.length - a.length; // Longer entities first for proper nesting
+    });
+
+    return new FormattedString(newRawText, newEntities);
+  }
+
+  /**
+   * Replaces all occurrences of a search string with a replacement string.
+   *
+   * @param searchText The text to search for (can be a FormattedString or plain string).
+   * @param replacementText The text to replace with (can be a FormattedString or plain string).
+   * @returns A new FormattedString with all replacements made.
+   */
+  replaceAll(
+    searchText: FormattedString | string,
+    replacementText: FormattedString | string,
+  ): FormattedString {
+    const searchFS = typeof searchText === "string"
+      ? new FormattedString(searchText)
+      : searchText;
+    const replaceWithFS = typeof replacementText === "string"
+      ? new FormattedString(replacementText)
+      : replacementText;
+
+    if (searchFS.rawText.length === 0) {
+      return new FormattedString(this.rawText, [...this.rawEntities]); // Return a clone
+    }
+
+    const occurrences = this.findAll(searchFS);
+    if (occurrences.length === 0) {
+      return new FormattedString(this.rawText, [...this.rawEntities]); // Return a clone
+    }
+
+    let newRawText = this.rawText;
+    let newEntities: MessageEntity[] = [...this.rawEntities.map(e => ({...e}))]; // Deep copy entities
+
+    const lengthDifference = replaceWithFS.rawText.length -
+      searchFS.rawText.length;
+
+    // Iterate from right to left to preserve indices of earlier occurrences
+    for (let i = occurrences.length - 1; i >= 0; i--) {
+      const { startIndex, endIndex } = occurrences[i];
+
+      // Adjust text
+      newRawText = newRawText.substring(0, startIndex) +
+        replaceWithFS.rawText +
+        newRawText.substring(endIndex);
+
+      // Adjust entities
+      const currentEntities: MessageEntity[] = [];
+      // 1. Remove entities within the replaced part
+      // 2. Shift entities after the replaced part
+      // 3. Add entities from replaceWithFS
+
+      const tempEntities: MessageEntity[] = [];
+      for (const entity of newEntities) {
+        if (entity.offset + entity.length <= startIndex) { // Entity is before the current replacement
+          tempEntities.push(entity);
+        } else if (entity.offset >= endIndex) { // Entity is after the current replacement
+          tempEntities.push({ ...entity, offset: entity.offset + lengthDifference });
+        } else {
+          // Entity is within or overlaps the replaced segment - discard for now.
+          // More sophisticated logic could try to preserve parts of overlapping entities,
+          // but for exact match replacement, removing is safer.
+        }
+      }
+      newEntities = tempEntities;
+
+      // Add entities from replaceWithFS, adjusted to the current startIndex
+      for (const entity of replaceWithFS.rawEntities) {
+        newEntities.push({
+          ...entity,
+          offset: entity.offset + startIndex,
+        });
+      }
+    }
+
+    // Sort entities: by offset, then by length (descending for outer entities first)
+    newEntities.sort((a, b) => {
+        if (a.offset !== b.offset) return a.offset - b.offset;
+        return b.length - a.length; // Longer entities first for proper nesting
+    });
+
+    return new FormattedString(newRawText, newEntities);
+  }
+
+  /**
+   * Finds all occurrences of a search FormattedString within this FormattedString,
+   * ensuring an exact match of both text and entities.
+   *
+   * @param search The FormattedString to search for.
+   * @returns An array of objects, each containing `startIndex` and `endIndex`
+   *          of an exact match.
+   */
+  public findAll(
+    search: FormattedString,
+  ): { startIndex: number; endIndex: number }[] {
+    const occurrences: { startIndex: number; endIndex: number }[] = [];
+    if (search.rawText.length === 0) {
+      return occurrences;
+    }
+
+    for (
+      let i = 0;
+      (i = this.rawText.indexOf(search.rawText, i)) !== -1;
+      i += search.rawText.length
+    ) {
+      const startIndex = i;
+      const endIndex = startIndex + search.rawText.length;
+
+      // Get entities of the current FormattedString that are within the potential match range
+      const hostEntitiesInRange = this.rawEntities.filter(
+        (entity) =>
+          entity.offset >= startIndex &&
+          entity.offset + entity.length <= endIndex,
+      );
+
+      // Adjust offsets of hostEntitiesInRange to be relative to startIndex for comparison
+      const adjustedHostEntities = hostEntitiesInRange.map((entity) => ({
+        ...entity,
+        offset: entity.offset - startIndex,
+      }));
+
+      // Sort both entity arrays for consistent comparison
+      // Depeding on the specific fields and structure of MessageEntity, a more robust sort might be needed.
+      // For now, sorting by offset, then length, then type.
+      const sortEntities = (a: MessageEntity, b: MessageEntity) => {
+        if (a.offset !== b.offset) return a.offset - b.offset;
+        if (a.length !== b.length) return a.length - b.length;
+        return a.type.localeCompare(b.type);
+        // Add other properties like `url`, `user`, `language`, `custom_emoji_id` for a full comparison if necessary
+      };
+
+      const sortedHostEntities = [...adjustedHostEntities].sort(sortEntities);
+      const sortedSearchEntities = [...search.rawEntities].sort(sortEntities);
+
+      // Compare the entities
+      if (sortedHostEntities.length === sortedSearchEntities.length) {
+        let entitiesMatch = true;
+        for (let j = 0; j < sortedHostEntities.length; j++) {
+          const hostEntity = sortedHostEntities[j];
+          const searchEntity = sortedSearchEntities[j];
+          if (
+            hostEntity.type !== searchEntity.type ||
+            hostEntity.offset !== searchEntity.offset ||
+            hostEntity.length !== searchEntity.length ||
+            // Compare other relevant properties for specific entity types
+            (hostEntity.type === "text_link" && searchEntity.type === "text_link" && hostEntity.url !== searchEntity.url) ||
+            (hostEntity.type === "text_mention" && searchEntity.type === "text_mention" && hostEntity.user?.id !== searchEntity.user?.id) ||
+            (hostEntity.type === "pre" && searchEntity.type === "pre" && hostEntity.language !== searchEntity.language) ||
+            (hostEntity.type === "custom_emoji" && searchEntity.type === "custom_emoji" && hostEntity.custom_emoji_id !== searchEntity.custom_emoji_id)
+          ) {
+            entitiesMatch = false;
+            break;
+          }
+        }
+
+        if (entitiesMatch) {
+          occurrences.push({ startIndex, endIndex });
+        }
+      }
+    }
+    return occurrences;
+  }
 }
 
 function buildFormatter<T extends Array<unknown> = never>(
