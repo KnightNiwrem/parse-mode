@@ -508,6 +508,134 @@ export class FormattedString
   plain(text: string) {
     return fmt`${this}${text}`;
   }
+
+  /**
+   * Finds the first occurrence of a FormattedString within this FormattedString.
+   * Matches both the rawText and rawEntities strictly.
+   * @param needle The FormattedString to search for
+   * @returns The offset index in rawText where the match is found, or -1 if not found
+   */
+  find(needle: FormattedString): number {
+    // Handle edge cases
+    if (needle.rawText === "") {
+      return 0; // Empty string matches at position 0
+    }
+    if (this.rawText === "" || needle.rawText.length > this.rawText.length) {
+      return -1; // Cannot find needle in empty or shorter haystack
+    }
+
+    // Find all potential text matches
+    let searchIndex = 0;
+    while (searchIndex <= this.rawText.length - needle.rawText.length) {
+      const textIndex = this.rawText.indexOf(needle.rawText, searchIndex);
+      if (textIndex === -1) {
+        break; // No more text matches
+      }
+
+      // Check if entities match at this position
+      if (this.entitiesMatchAt(needle, textIndex)) {
+        return textIndex;
+      }
+
+      searchIndex = textIndex + 1;
+    }
+
+    return -1; // No match found
+  }
+
+  /**
+   * Helper method to check if entities match at a specific position
+   * @private
+   */
+  private entitiesMatchAt(needle: FormattedString, offset: number): boolean {
+    const needleStart = offset;
+    const needleEnd = offset + needle.rawText.length;
+    
+    // For each entity in needle, check if there's a corresponding entity in haystack
+    for (const needleEntity of needle.rawEntities) {
+      const needleEntityStart = needleStart + needleEntity.offset;
+      const needleEntityEnd = needleEntityStart + needleEntity.length;
+      
+      // Find haystack entities that cover this needle entity's range
+      const coveringHaystackEntities = this.rawEntities.filter(haystackEntity => {
+        const haystackEntityStart = haystackEntity.offset;
+        const haystackEntityEnd = haystackEntity.offset + haystackEntity.length;
+        
+        return (
+          haystackEntity.type === needleEntity.type &&
+          haystackEntityStart <= needleEntityStart &&
+          haystackEntityEnd >= needleEntityEnd &&
+          this.entitiesPropertiesMatch(haystackEntity, needleEntity)
+        );
+      });
+
+      if (coveringHaystackEntities.length === 0) {
+        return false; // No covering entity found
+      }
+    }
+
+    // Check that there are no extra entities in the haystack that would be within
+    // the needle range but don't exist in the needle
+    const haystackEntitiesInRange = this.rawEntities.filter(entity => {
+      const entityStart = entity.offset;
+      const entityEnd = entity.offset + entity.length;
+      // Entity is considered "in range" if it overlaps with the needle range
+      return (entityStart < needleEnd && entityEnd > needleStart);
+    });
+
+    for (const haystackEntity of haystackEntitiesInRange) {
+      const haystackEntityStart = haystackEntity.offset;
+      const haystackEntityEnd = haystackEntity.offset + haystackEntity.length;
+      
+      // Calculate the intersection of the haystack entity with the needle range
+      const intersectionStart = Math.max(haystackEntityStart, needleStart);
+      const intersectionEnd = Math.min(haystackEntityEnd, needleEnd);
+      
+      if (intersectionStart < intersectionEnd) {
+        // There's an intersection, check if needle has a corresponding entity
+        const needleRelativeStart = intersectionStart - needleStart;
+        const needleRelativeEnd = intersectionEnd - needleStart;
+        
+        const correspondingNeedleEntity = needle.rawEntities.find(needleEntity => {
+          const needleEntityStart = needleEntity.offset;
+          const needleEntityEnd = needleEntity.offset + needleEntity.length;
+          
+          return (
+            needleEntity.type === haystackEntity.type &&
+            needleEntityStart <= needleRelativeStart &&
+            needleEntityEnd >= needleRelativeEnd &&
+            this.entitiesPropertiesMatch(needleEntity, haystackEntity)
+          );
+        });
+
+        if (!correspondingNeedleEntity) {
+          return false; // Extra formatting in haystack that doesn't exist in needle
+        }
+      }
+    }
+
+    return true; // All entities match
+  }
+
+  /**
+   * Helper method to check if additional entity properties match
+   * @private
+   */
+  private entitiesPropertiesMatch(entity1: MessageEntity, entity2: MessageEntity): boolean {
+    // Check type-specific properties
+    if (entity1.type === "text_link" && entity2.type === "text_link") {
+      return (entity1 as any).url === (entity2 as any).url;
+    }
+    if (entity1.type === "pre" && entity2.type === "pre") {
+      return (entity1 as any).language === (entity2 as any).language;
+    }
+    if (entity1.type === "text_mention" && entity2.type === "text_mention") {
+      return (entity1 as any).user === (entity2 as any).user;
+    }
+    
+    // For other types, no additional properties to check
+    return true;
+  }
 }
 
 function buildFormatter<T extends Array<unknown> = never>(

@@ -773,3 +773,145 @@ Deno.test("FormattedString - Static join method", () => {
   assertEquals(combinedResult.rawEntities[1]?.offset, 28); // After "Start: TextWithEntities and "
   assertEquals(combinedResult.rawEntities[1]?.length, 7); // "Caption"
 });
+
+Deno.test("FormattedString - find method basic functionality", () => {
+  // Test basic text matching without entities
+  const haystack = new FormattedString("Hello world! This is a test.", []);
+  const needle1 = new FormattedString("world", []);
+  const needle2 = new FormattedString("test", []);
+  const needle3 = new FormattedString("notfound", []);
+
+  assertEquals(haystack.find(needle1), 6);
+  assertEquals(haystack.find(needle2), 25);
+  assertEquals(haystack.find(needle3), -1);
+
+  // Test empty needle
+  const emptyNeedle = new FormattedString("", []);
+  assertEquals(haystack.find(emptyNeedle), 0);
+
+  // Test needle larger than haystack
+  const largeNeedle = new FormattedString("This is a very long string that doesn't fit", []);
+  assertEquals(haystack.find(largeNeedle), -1);
+});
+
+Deno.test("FormattedString - find method with matching entities", () => {
+  // Create haystack with mixed formatting: "Hello **bold** and *italic* text"
+  const haystack = new FormattedString("Hello bold and italic text", [
+    { type: "bold", offset: 6, length: 4 },     // "bold"
+    { type: "italic", offset: 15, length: 6 }   // "italic"
+  ]);
+
+  // Test finding bold text
+  const boldNeedle = new FormattedString("bold", [
+    { type: "bold", offset: 0, length: 4 }
+  ]);
+  assertEquals(haystack.find(boldNeedle), 6);
+
+  // Test finding italic text
+  const italicNeedle = new FormattedString("italic", [
+    { type: "italic", offset: 0, length: 6 }
+  ]);
+  assertEquals(haystack.find(italicNeedle), 15);
+
+  // Test finding plain text that happens to match but without formatting
+  const plainNeedle = new FormattedString("bold", []);
+  assertEquals(haystack.find(plainNeedle), -1); // Should not match because formatting is different
+});
+
+Deno.test("FormattedString - find method with non-matching entities", () => {
+  const haystack = new FormattedString("Hello bold text", [
+    { type: "bold", offset: 6, length: 4 }
+  ]);
+
+  // Test finding text with wrong formatting
+  const wrongFormatNeedle = new FormattedString("bold", [
+    { type: "italic", offset: 0, length: 4 }
+  ]);
+  assertEquals(haystack.find(wrongFormatNeedle), -1);
+
+  // Test finding text with partial formatting
+  const partialFormatNeedle = new FormattedString("bold", [
+    { type: "bold", offset: 0, length: 2 } // Only part of "bold" is bold
+  ]);
+  assertEquals(haystack.find(partialFormatNeedle), -1);
+
+  // Test finding text with extra formatting
+  const extraFormatNeedle = new FormattedString("bold", [
+    { type: "bold", offset: 0, length: 4 },
+    { type: "italic", offset: 0, length: 4 }
+  ]);
+  assertEquals(haystack.find(extraFormatNeedle), -1);
+});
+
+Deno.test("FormattedString - find method with complex entities", () => {
+  // Create haystack with overlapping and multiple entities
+  const haystack = new FormattedString("Visit our website for more info", [
+    { type: "bold", offset: 0, length: 5 },        // "Visit"
+    { type: "text_link", offset: 10, length: 7, url: "https://example.com" as any }, // "website"
+    { type: "italic", offset: 26, length: 4 }      // "info"
+  ]);
+
+  // Test finding link with correct URL
+  const linkNeedle = new FormattedString("website", [
+    { type: "text_link", offset: 0, length: 7, url: "https://example.com" as any }
+  ]);
+  assertEquals(haystack.find(linkNeedle), 10);
+
+  // Test finding link with wrong URL
+  const wrongLinkNeedle = new FormattedString("website", [
+    { type: "text_link", offset: 0, length: 7, url: "https://wrong.com" as any }
+  ]);
+  assertEquals(haystack.find(wrongLinkNeedle), -1);
+
+  // Test finding bold text
+  const boldNeedle = new FormattedString("Visit", [
+    { type: "bold", offset: 0, length: 5 }
+  ]);
+  assertEquals(haystack.find(boldNeedle), 0);
+});
+
+Deno.test("FormattedString - find method with multiple occurrences", () => {
+  // Test that it returns the first match
+  const haystack = new FormattedString("test test test", [
+    { type: "bold", offset: 0, length: 4 },     // First "test"
+    { type: "italic", offset: 10, length: 4 }   // Third "test"
+  ]);
+
+  // Look for plain "test" - should find first occurrence
+  const plainNeedle = new FormattedString("test", []);
+  assertEquals(haystack.find(plainNeedle), 5); // Second "test" which is plain
+
+  // Look for bold "test" - should find first occurrence
+  const boldNeedle = new FormattedString("test", [
+    { type: "bold", offset: 0, length: 4 }
+  ]);
+  assertEquals(haystack.find(boldNeedle), 0);
+
+  // Look for italic "test" - should find the one occurrence
+  const italicNeedle = new FormattedString("test", [
+    { type: "italic", offset: 0, length: 4 }
+  ]);
+  assertEquals(haystack.find(italicNeedle), 10);
+});
+
+Deno.test("FormattedString - find method edge cases", () => {
+  // Test empty haystack
+  const emptyHaystack = new FormattedString("", []);
+  const needle = new FormattedString("test", []);
+  assertEquals(emptyHaystack.find(needle), -1);
+
+  // Test empty needle in empty haystack
+  const emptyNeedle = new FormattedString("", []);
+  assertEquals(emptyHaystack.find(emptyNeedle), 0);
+
+  // Test exact match
+  const exact = new FormattedString("exact", [
+    { type: "bold", offset: 0, length: 5 }
+  ]);
+  assertEquals(exact.find(exact), 0);
+
+  // Test case sensitivity
+  const caseHaystack = new FormattedString("Hello World", []);
+  const lowerNeedle = new FormattedString("hello", []);
+  assertEquals(caseHaystack.find(lowerNeedle), -1); // Should be case sensitive
+});
