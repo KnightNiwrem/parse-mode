@@ -790,26 +790,29 @@ Deno.test("FormattedString - find method basic functionality", () => {
   assertEquals(haystack.find(emptyNeedle), 0);
 
   // Test needle larger than haystack
-  const largeNeedle = new FormattedString("This is a very long string that doesn't fit", []);
+  const largeNeedle = new FormattedString(
+    "This is a very long string that doesn't fit",
+    [],
+  );
   assertEquals(haystack.find(largeNeedle), -1);
 });
 
 Deno.test("FormattedString - find method with matching entities", () => {
   // Create haystack with mixed formatting: "Hello **bold** and *italic* text"
   const haystack = new FormattedString("Hello bold and italic text", [
-    { type: "bold", offset: 6, length: 4 },     // "bold"
-    { type: "italic", offset: 15, length: 6 }   // "italic"
+    { type: "bold", offset: 6, length: 4 }, // "bold"
+    { type: "italic", offset: 15, length: 6 }, // "italic"
   ]);
 
   // Test finding bold text
   const boldNeedle = new FormattedString("bold", [
-    { type: "bold", offset: 0, length: 4 }
+    { type: "bold", offset: 0, length: 4 },
   ]);
   assertEquals(haystack.find(boldNeedle), 6);
 
   // Test finding italic text
   const italicNeedle = new FormattedString("italic", [
-    { type: "italic", offset: 0, length: 6 }
+    { type: "italic", offset: 0, length: 6 },
   ]);
   assertEquals(haystack.find(italicNeedle), 15);
 
@@ -820,25 +823,25 @@ Deno.test("FormattedString - find method with matching entities", () => {
 
 Deno.test("FormattedString - find method with non-matching entities", () => {
   const haystack = new FormattedString("Hello bold text", [
-    { type: "bold", offset: 6, length: 4 }
+    { type: "bold", offset: 6, length: 4 },
   ]);
 
   // Test finding text with wrong formatting
   const wrongFormatNeedle = new FormattedString("bold", [
-    { type: "italic", offset: 0, length: 4 }
+    { type: "italic", offset: 0, length: 4 },
   ]);
   assertEquals(haystack.find(wrongFormatNeedle), -1);
 
   // Test finding text with partial formatting
   const partialFormatNeedle = new FormattedString("bold", [
-    { type: "bold", offset: 0, length: 2 } // Only part of "bold" is bold
+    { type: "bold", offset: 0, length: 2 }, // Only part of "bold" is bold
   ]);
   assertEquals(haystack.find(partialFormatNeedle), -1);
 
   // Test finding text with extra formatting
   const extraFormatNeedle = new FormattedString("bold", [
     { type: "bold", offset: 0, length: 4 },
-    { type: "italic", offset: 0, length: 4 }
+    { type: "italic", offset: 0, length: 4 },
   ]);
   assertEquals(haystack.find(extraFormatNeedle), -1);
 });
@@ -846,26 +849,41 @@ Deno.test("FormattedString - find method with non-matching entities", () => {
 Deno.test("FormattedString - find method with complex entities", () => {
   // Create haystack with overlapping and multiple entities
   const haystack = new FormattedString("Visit our website for more info", [
-    { type: "bold", offset: 0, length: 5 },        // "Visit"
-    { type: "text_link", offset: 10, length: 7, url: "https://example.com" } as MessageEntity, // "website"
-    { type: "italic", offset: 26, length: 4 }      // "info"
+    { type: "bold", offset: 0, length: 5 }, // "Visit"
+    {
+      type: "text_link",
+      offset: 10,
+      length: 7,
+      url: "https://example.com",
+    } as MessageEntity, // "website"
+    { type: "italic", offset: 26, length: 4 }, // "info"
   ]);
 
   // Test finding link with correct URL
   const linkNeedle = new FormattedString("website", [
-    { type: "text_link", offset: 0, length: 7, url: "https://example.com" } as MessageEntity
+    {
+      type: "text_link",
+      offset: 0,
+      length: 7,
+      url: "https://example.com",
+    } as MessageEntity,
   ]);
   assertEquals(haystack.find(linkNeedle), 10);
 
   // Test finding link with wrong URL
   const wrongLinkNeedle = new FormattedString("website", [
-    { type: "text_link", offset: 0, length: 7, url: "https://wrong.com" } as MessageEntity
+    {
+      type: "text_link",
+      offset: 0,
+      length: 7,
+      url: "https://wrong.com",
+    } as MessageEntity,
   ]);
   assertEquals(haystack.find(wrongLinkNeedle), -1);
 
   // Test finding bold text
   const boldNeedle = new FormattedString("Visit", [
-    { type: "bold", offset: 0, length: 5 }
+    { type: "bold", offset: 0, length: 5 },
   ]);
   assertEquals(haystack.find(boldNeedle), 0);
 });
@@ -873,8 +891,8 @@ Deno.test("FormattedString - find method with complex entities", () => {
 Deno.test("FormattedString - find method with multiple occurrences", () => {
   // Test that it returns the first match
   const haystack = new FormattedString("test test test", [
-    { type: "bold", offset: 0, length: 4 },     // First "test"
-    { type: "italic", offset: 10, length: 4 }   // Third "test"
+    { type: "bold", offset: 0, length: 4 }, // First "test"
+    { type: "italic", offset: 10, length: 4 }, // Third "test"
   ]);
 
   // Look for plain "test" - should find first occurrence
@@ -883,13 +901,13 @@ Deno.test("FormattedString - find method with multiple occurrences", () => {
 
   // Look for bold "test" - should find first occurrence
   const boldNeedle = new FormattedString("test", [
-    { type: "bold", offset: 0, length: 4 }
+    { type: "bold", offset: 0, length: 4 },
   ]);
   assertEquals(haystack.find(boldNeedle), 0);
 
   // Look for italic "test" - should find the one occurrence
   const italicNeedle = new FormattedString("test", [
-    { type: "italic", offset: 0, length: 4 }
+    { type: "italic", offset: 0, length: 4 },
   ]);
   assertEquals(haystack.find(italicNeedle), 10);
 });
@@ -906,7 +924,7 @@ Deno.test("FormattedString - find method edge cases", () => {
 
   // Test exact match
   const exact = new FormattedString("exact", [
-    { type: "bold", offset: 0, length: 5 }
+    { type: "bold", offset: 0, length: 5 },
   ]);
   assertEquals(exact.find(exact), 0);
 
@@ -917,20 +935,20 @@ Deno.test("FormattedString - find method edge cases", () => {
 
   // Test partial entity overlap - should not match plain text where formatting exists
   const partialOverlapHaystack = new FormattedString("Hello world", [
-    { type: "bold", offset: 3, length: 5 }  // "lo wo" is bold
+    { type: "bold", offset: 3, length: 5 }, // "lo wo" is bold
   ]);
-  
+
   const helloNeedle = new FormattedString("Hello", []);
   assertEquals(partialOverlapHaystack.find(helloNeedle), -1); // Should fail because positions 3-4 are bold
-  
+
   const worldNeedle = new FormattedString("world", []);
   assertEquals(partialOverlapHaystack.find(worldNeedle), -1); // Should fail because positions 0-2 are bold
-  
+
   // But should match if we don't have overlapping entities
   const noOverlapHaystack = new FormattedString("Hello world", [
-    { type: "bold", offset: 6, length: 5 }  // Only "world" is bold
+    { type: "bold", offset: 6, length: 5 }, // Only "world" is bold
   ]);
-  
+
   const helloPlainNeedle = new FormattedString("Hello", []);
   assertEquals(noOverlapHaystack.find(helloPlainNeedle), 0); // Should succeed - no formatting overlap
 });
@@ -938,21 +956,21 @@ Deno.test("FormattedString - find method edge cases", () => {
 Deno.test("FormattedString - find method with overlapping entities", () => {
   // Test overlapping entities - text that is both bold and italic
   const overlapHaystack = new FormattedString("Hello world", [
-    { type: "bold", offset: 0, length: 11 },    // Entire text is bold
-    { type: "italic", offset: 6, length: 5 }    // "world" is also italic
+    { type: "bold", offset: 0, length: 11 }, // Entire text is bold
+    { type: "italic", offset: 6, length: 5 }, // "world" is also italic
   ]);
 
   // Search for "world" that should be both bold and italic
   const overlapNeedle = new FormattedString("world", [
     { type: "bold", offset: 0, length: 5 },
-    { type: "italic", offset: 0, length: 5 }
+    { type: "italic", offset: 0, length: 5 },
   ]);
 
   assertEquals(overlapHaystack.find(overlapNeedle), 6);
 
   // Test partial overlap - should not match
   const partialOverlapNeedle = new FormattedString("world", [
-    { type: "bold", offset: 0, length: 5 }
+    { type: "bold", offset: 0, length: 5 },
     // Missing italic formatting
   ]);
 
