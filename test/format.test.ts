@@ -782,7 +782,7 @@ Deno.test("FormattedString - find method basic functionality", () => {
   const needle3 = new FormattedString("notfound", []);
 
   assertEquals(haystack.find(needle1), 6);
-  assertEquals(haystack.find(needle2), 25);
+  assertEquals(haystack.find(needle2), 23);
   assertEquals(haystack.find(needle3), -1);
 
   // Test empty needle
@@ -914,4 +914,51 @@ Deno.test("FormattedString - find method edge cases", () => {
   const caseHaystack = new FormattedString("Hello World", []);
   const lowerNeedle = new FormattedString("hello", []);
   assertEquals(caseHaystack.find(lowerNeedle), -1); // Should be case sensitive
+
+  // Test partial entity overlap - should not match plain text where formatting exists
+  const partialOverlapHaystack = new FormattedString("Hello world", [
+    { type: "bold", offset: 3, length: 5 }  // "lo wo" is bold
+  ]);
+  
+  const helloNeedle = new FormattedString("Hello", []);
+  assertEquals(partialOverlapHaystack.find(helloNeedle), -1); // Should fail because positions 3-4 are bold
+  
+  const worldNeedle = new FormattedString("world", []);
+  assertEquals(partialOverlapHaystack.find(worldNeedle), -1); // Should fail because positions 0-2 are bold
+  
+  // But should match if we don't have overlapping entities
+  const noOverlapHaystack = new FormattedString("Hello world", [
+    { type: "bold", offset: 6, length: 5 }  // Only "world" is bold
+  ]);
+  
+  const helloPlainNeedle = new FormattedString("Hello", []);
+  assertEquals(noOverlapHaystack.find(helloPlainNeedle), 0); // Should succeed - no formatting overlap
+});
+
+Deno.test("FormattedString - find method with overlapping entities", () => {
+  // Test overlapping entities - text that is both bold and italic
+  const overlapHaystack = new FormattedString("Hello world", [
+    { type: "bold", offset: 0, length: 11 },    // Entire text is bold
+    { type: "italic", offset: 6, length: 5 }    // "world" is also italic
+  ]);
+
+  // Search for "world" that should be both bold and italic
+  const overlapNeedle = new FormattedString("world", [
+    { type: "bold", offset: 0, length: 5 },
+    { type: "italic", offset: 0, length: 5 }
+  ]);
+
+  assertEquals(overlapHaystack.find(overlapNeedle), 6);
+
+  // Test partial overlap - should not match
+  const partialOverlapNeedle = new FormattedString("world", [
+    { type: "bold", offset: 0, length: 5 }
+    // Missing italic formatting
+  ]);
+
+  assertEquals(overlapHaystack.find(partialOverlapNeedle), -1);
+
+  // Test plain text in overlapping area - should not match
+  const plainOverlapNeedle = new FormattedString("world", []);
+  assertEquals(overlapHaystack.find(plainOverlapNeedle), -1);
 });
