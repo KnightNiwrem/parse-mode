@@ -658,17 +658,23 @@ export class FormattedString
   }
 
   /**
-   * Protected method to replace matches at given offsets with a replacement.
-   * @param pattern The FormattedString pattern being replaced (needed for length calculation)
+   * Protected method to replace matches with a replacement using non-overlapping findAll.
+   * @param pattern The FormattedString pattern to search for and replace
    * @param replacement The FormattedString to replace matches with
-   * @param matchOffsets Array of offsets where matches were found
+   * @param replaceAll If true, replaces all matches; if false, replaces only the first match
    * @returns A new FormattedString with matches replaced
    */
   protected replaceMatches(
     pattern: FormattedString,
     replacement: FormattedString,
-    matchOffsets: number[],
+    replaceAll: boolean,
   ): FormattedString {
+    // Use non-overlapping findAll to get matches
+    const allMatches = this.findAll(pattern, false);
+    
+    // Determine which matches to use based on replaceAll parameter
+    const matchOffsets = replaceAll ? allMatches : allMatches.slice(0, 1);
+
     if (matchOffsets.length === 0) {
       // No matches found, return a copy of the original
       return new FormattedString(this.rawText, [...this.rawEntities]);
@@ -715,13 +721,7 @@ export class FormattedString
     pattern: FormattedString,
     replacement: FormattedString,
   ): FormattedString {
-    const matchOffset = this.find(pattern);
-
-    if (matchOffset === -1) {
-      return this.replaceMatches(pattern, replacement, []);
-    }
-
-    return this.replaceMatches(pattern, replacement, [matchOffset]);
+    return this.replaceMatches(pattern, replacement, false);
   }
 
   /**
@@ -735,8 +735,7 @@ export class FormattedString
     pattern: FormattedString,
     replacement: FormattedString,
   ): FormattedString {
-    const nonOverlappingMatches = this.findAll(pattern, false);
-    return this.replaceMatches(pattern, replacement, nonOverlappingMatches);
+    return this.replaceMatches(pattern, replacement, true);
   }
 }
 
