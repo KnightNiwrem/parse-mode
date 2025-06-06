@@ -659,9 +659,10 @@ export class FormattedString
 
   /**
    * Protected method to replace matches at given offsets with a replacement.
+   * This method assumes that matchOffsets contains only non-overlapping matches.
    * @param pattern The FormattedString pattern being replaced (needed for length calculation)
    * @param replacement The FormattedString to replace matches with
-   * @param matchOffsets Array of offsets where matches were found
+   * @param matchOffsets Array of non-overlapping offsets where matches were found (must be sorted)
    * @returns A new FormattedString with matches replaced
    */
   protected replaceMatches(
@@ -674,7 +675,20 @@ export class FormattedString
       return new FormattedString(this.rawText, [...this.rawEntities]);
     }
 
+    // Validate that matches are non-overlapping (assumes they are sorted)
+    const patternLength = pattern.rawText.length;
+    for (let i = 1; i < matchOffsets.length; i++) {
+      const prevMatchEnd = matchOffsets[i - 1] + patternLength;
+      const currentMatchStart = matchOffsets[i];
+      if (currentMatchStart < prevMatchEnd) {
+        throw new Error(
+          `replaceMatches expects non-overlapping matches, but found overlapping matches at positions ${matchOffsets[i - 1]} and ${currentMatchStart}`
+        );
+      }
+    }
+
     // Process matches from right to left to avoid offset shifts
+    // This algorithm is optimized for non-overlapping matches
     const segments: FormattedString[] = [];
     let currentOffset = this.rawText.length;
 
