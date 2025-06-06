@@ -662,7 +662,7 @@ export class FormattedString
    * This method assumes that matchOffsets contains only non-overlapping matches.
    * @param pattern The FormattedString pattern being replaced (needed for length calculation)
    * @param replacement The FormattedString to replace matches with
-   * @param matchOffsets Array of non-overlapping offsets where matches were found (must be sorted)
+   * @param matchOffsets Array of non-overlapping offsets where matches were found
    * @returns A new FormattedString with matches replaced
    */
   protected replaceMatches(
@@ -675,26 +675,16 @@ export class FormattedString
       return new FormattedString(this.rawText, [...this.rawEntities]);
     }
 
-    // Validate that matches are non-overlapping (assumes they are sorted)
-    const patternLength = pattern.rawText.length;
-    for (let i = 1; i < matchOffsets.length; i++) {
-      const prevMatchEnd = matchOffsets[i - 1] + patternLength;
-      const currentMatchStart = matchOffsets[i];
-      if (currentMatchStart < prevMatchEnd) {
-        throw new Error(
-          `replaceMatches expects non-overlapping matches, but found overlapping matches at positions ${matchOffsets[i - 1]} and ${currentMatchStart}`
-        );
-      }
-    }
+    // Sort matches to process them in order, since the algorithm processes right-to-left
+    const sortedOffsets = [...matchOffsets].sort((a, b) => a - b);
 
     // Process matches from right to left to avoid offset shifts
-    // This algorithm is optimized for non-overlapping matches
     const segments: FormattedString[] = [];
     let currentOffset = this.rawText.length;
 
-    // Work backwards through the matches
-    for (let i = matchOffsets.length - 1; i >= 0; i--) {
-      const matchOffset = matchOffsets[i];
+    // Work backwards through the sorted matches
+    for (let i = sortedOffsets.length - 1; i >= 0; i--) {
+      const matchOffset = sortedOffsets[i];
       const matchEnd = matchOffset + pattern.rawText.length;
 
       // Add the text after this match (if any)
