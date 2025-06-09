@@ -1,6 +1,96 @@
 import type { MessageEntity, User } from "./deps.deno.ts";
 
 /**
+ * Creates a deep copy of a User object.
+ * @param user The user object to copy
+ * @returns A deep copy of the user object
+ */
+function deepCopyUser(user: User): User {
+  const copy: User = {
+    id: user.id,
+    is_bot: user.is_bot,
+    first_name: user.first_name,
+  };
+
+  // Copy optional properties if they exist
+  if (user.last_name !== undefined) {
+    copy.last_name = user.last_name;
+  }
+  if (user.username !== undefined) {
+    copy.username = user.username;
+  }
+  if (user.language_code !== undefined) {
+    copy.language_code = user.language_code;
+  }
+  if (user.is_premium !== undefined) {
+    copy.is_premium = user.is_premium;
+  }
+  if (user.added_to_attachment_menu !== undefined) {
+    copy.added_to_attachment_menu = user.added_to_attachment_menu;
+  }
+  if (user.can_join_groups !== undefined) {
+    copy.can_join_groups = user.can_join_groups;
+  }
+  if (user.can_read_all_group_messages !== undefined) {
+    copy.can_read_all_group_messages = user.can_read_all_group_messages;
+  }
+  if (user.supports_inline_queries !== undefined) {
+    copy.supports_inline_queries = user.supports_inline_queries;
+  }
+  if (user.can_connect_to_business !== undefined) {
+    copy.can_connect_to_business = user.can_connect_to_business;
+  }
+  if (user.has_main_web_app !== undefined) {
+    copy.has_main_web_app = user.has_main_web_app;
+  }
+
+  return copy;
+}
+
+/**
+ * Creates a deep copy of a MessageEntity object.
+ * @param entity The message entity to copy
+ * @returns A deep copy of the message entity
+ */
+export function deepCopyMessageEntity(entity: MessageEntity): MessageEntity {
+  // Create base copy with required properties
+  const copy: MessageEntity = {
+    type: entity.type,
+    offset: entity.offset,
+    length: entity.length,
+  } as MessageEntity;
+
+  // Handle type-specific properties
+  switch (entity.type) {
+    case "text_link":
+      return {
+        ...copy,
+        url: (entity as any).url,
+      };
+    case "pre":
+      const preEntity = entity as any;
+      const preCopy: any = { ...copy };
+      if (preEntity.language !== undefined) {
+        preCopy.language = preEntity.language;
+      }
+      return preCopy;
+    case "custom_emoji":
+      return {
+        ...copy,
+        custom_emoji_id: (entity as any).custom_emoji_id,
+      };
+    case "text_mention":
+      return {
+        ...copy,
+        user: deepCopyUser((entity as any).user),
+      };
+    // For all other entity types, no additional properties need copying
+    default:
+      return copy;
+  }
+}
+
+/**
  * Compares two user objects for deep equality.
  * @param user1 First user object to compare
  * @param user2 Second user object to compare

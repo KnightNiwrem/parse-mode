@@ -1,6 +1,7 @@
 import { assertEquals, describe, it } from "./deps.test.ts";
 import {
   consolidateEntities,
+  deepCopyMessageEntity,
   isEntityEqual,
   isEntitySimilar,
   isUserEqual,
@@ -595,5 +596,238 @@ describe("Utility method tests", () => {
     assertEquals(boldEntity?.length, 16); // Should span from 0 to 16 (consolidating all bold entities)
     assertEquals(italicEntity?.offset, 3);
     assertEquals(italicEntity?.length, 8); // Should remain unchanged as it's a different type
+  });
+});
+
+describe("deepCopyMessageEntity", () => {
+  it("basic entity types", () => {
+    const boldEntity: MessageEntity = {
+      type: "bold",
+      offset: 5,
+      length: 10,
+    };
+
+    const copiedBold = deepCopyMessageEntity(boldEntity);
+
+    // Should be equal but not the same object
+    assertEquals(isEntityEqual(boldEntity, copiedBold), true);
+    assertEquals(boldEntity !== copiedBold, true);
+
+    // Test with italic entity
+    const italicEntity: MessageEntity = {
+      type: "italic",
+      offset: 0,
+      length: 15,
+    };
+
+    const copiedItalic = deepCopyMessageEntity(italicEntity);
+    assertEquals(isEntityEqual(italicEntity, copiedItalic), true);
+    assertEquals(italicEntity !== copiedItalic, true);
+  });
+
+  it("text_link entity", () => {
+    const textLinkEntity: MessageEntity = {
+      type: "text_link",
+      offset: 10,
+      length: 8,
+      url: "https://example.com",
+    };
+
+    const copied = deepCopyMessageEntity(textLinkEntity);
+
+    // Should be equal but not the same object
+    assertEquals(isEntityEqual(textLinkEntity, copied), true);
+    assertEquals(textLinkEntity !== copied, true);
+
+    // Modifying the copy should not affect the original
+    if (copied.type === "text_link") {
+      copied.url = "https://different.com";
+    }
+    assertEquals(textLinkEntity.type === "text_link" && textLinkEntity.url, "https://example.com");
+  });
+
+  it("pre entity with language", () => {
+    const preEntity: MessageEntity = {
+      type: "pre",
+      offset: 0,
+      length: 20,
+      language: "typescript",
+    };
+
+    const copied = deepCopyMessageEntity(preEntity);
+
+    assertEquals(isEntityEqual(preEntity, copied), true);
+    assertEquals(preEntity !== copied, true);
+
+    // Modifying the copy should not affect the original
+    if (copied.type === "pre") {
+      copied.language = "javascript";
+    }
+    assertEquals(preEntity.type === "pre" && preEntity.language, "typescript");
+  });
+
+  it("pre entity without language", () => {
+    const preEntity: MessageEntity = {
+      type: "pre",
+      offset: 5,
+      length: 12,
+    };
+
+    const copied = deepCopyMessageEntity(preEntity);
+
+    assertEquals(isEntityEqual(preEntity, copied), true);
+    assertEquals(preEntity !== copied, true);
+    assertEquals(copied.type === "pre" && copied.language, undefined);
+  });
+
+  it("custom_emoji entity", () => {
+    const customEmojiEntity: MessageEntity = {
+      type: "custom_emoji",
+      offset: 2,
+      length: 2,
+      custom_emoji_id: "123456789",
+    };
+
+    const copied = deepCopyMessageEntity(customEmojiEntity);
+
+    assertEquals(isEntityEqual(customEmojiEntity, copied), true);
+    assertEquals(customEmojiEntity !== copied, true);
+
+    // Modifying the copy should not affect the original
+    if (copied.type === "custom_emoji") {
+      copied.custom_emoji_id = "987654321";
+    }
+    assertEquals(
+      customEmojiEntity.type === "custom_emoji" && customEmojiEntity.custom_emoji_id,
+      "123456789"
+    );
+  });
+
+  it("text_mention entity with deep user copy", () => {
+    const user: User = {
+      id: 123456,
+      is_bot: false,
+      first_name: "John",
+      last_name: "Doe",
+      username: "johndoe",
+      language_code: "en",
+    };
+
+    const textMentionEntity: MessageEntity = {
+      type: "text_mention",
+      offset: 0,
+      length: 4,
+      user: user,
+    };
+
+    const copied = deepCopyMessageEntity(textMentionEntity);
+
+    // Should be equal but not the same object
+    assertEquals(isEntityEqual(textMentionEntity, copied), true);
+    assertEquals(textMentionEntity !== copied, true);
+
+    // User objects should also be different instances
+    if (copied.type === "text_mention") {
+      assertEquals(copied.user !== user, true);
+      assertEquals(isUserEqual(copied.user, user), true);
+
+      // Modifying the copied user should not affect the original
+      copied.user.first_name = "Jane";
+      assertEquals(user.first_name, "John");
+      assertEquals(copied.user.first_name, "Jane");
+    }
+  });
+
+  it("text_mention entity with minimal user", () => {
+    const user: User = {
+      id: 789,
+      is_bot: true,
+      first_name: "Bot",
+    };
+
+    const textMentionEntity: MessageEntity = {
+      type: "text_mention",
+      offset: 5,
+      length: 3,
+      user: user,
+    };
+
+    const copied = deepCopyMessageEntity(textMentionEntity);
+
+    assertEquals(isEntityEqual(textMentionEntity, copied), true);
+    assertEquals(textMentionEntity !== copied, true);
+
+    if (copied.type === "text_mention") {
+      assertEquals(copied.user !== user, true);
+      assertEquals(isUserEqual(copied.user, user), true);
+      assertEquals(copied.user.last_name, undefined);
+      assertEquals(copied.user.username, undefined);
+    }
+  });
+
+  it("deep copy independence", () => {
+    const originalUser: User = {
+      id: 999,
+      is_bot: false,
+      first_name: "Original",
+      last_name: "User",
+    };
+
+    const originalEntity: MessageEntity = {
+      type: "text_mention",
+      offset: 0,
+      length: 8,
+      user: originalUser,
+    };
+
+    const copied = deepCopyMessageEntity(originalEntity);
+
+    // Modify the original
+    originalEntity.offset = 10;
+    originalEntity.length = 5;
+    originalUser.first_name = "Modified";
+
+    // The copy should remain unchanged
+    assertEquals(copied.offset, 0);
+    assertEquals(copied.length, 8);
+    if (copied.type === "text_mention") {
+      assertEquals(copied.user.first_name, "Original");
+    }
+  });
+
+  it("all basic entity types", () => {
+    const entityTypes = [
+      "bold",
+      "italic",
+      "underline",
+      "strikethrough",
+      "spoiler",
+      "code",
+      "mention",
+      "hashtag",
+      "cashtag",
+      "bot_command",
+      "url",
+      "email",
+      "phone_number",
+      "blockquote",
+      "expandable_blockquote",
+    ] as const;
+
+    for (const type of entityTypes) {
+      const entity: MessageEntity = {
+        type,
+        offset: 1,
+        length: 5,
+      };
+
+      const copied = deepCopyMessageEntity(entity);
+
+      assertEquals(isEntityEqual(entity, copied), true);
+      assertEquals(entity !== copied, true);
+      assertEquals(copied.type, type);
+      assertEquals(copied.offset, 1);
+      assertEquals(copied.length, 5);
+    }
   });
 });
