@@ -1,5 +1,9 @@
 import type { MessageEntity } from "./deps.deno.ts";
-import { consolidateEntities, deepCopyMessageEntity, isEntitiesEqual } from "./util.ts";
+import {
+  consolidateEntities,
+  deepCopyMessageEntity,
+  isEntitiesEqual,
+} from "./util.ts";
 
 /**
  * Represents an entity tag used for formatting text via fmt.

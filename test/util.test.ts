@@ -643,7 +643,10 @@ describe("deepCopyMessageEntity", () => {
     if (copied.type === "text_link") {
       copied.url = "https://different.com";
     }
-    assertEquals(textLinkEntity.type === "text_link" && textLinkEntity.url, "https://example.com");
+    assertEquals(
+      textLinkEntity.type === "text_link" && textLinkEntity.url,
+      "https://example.com",
+    );
   });
 
   it("pre entity with language", () => {
@@ -698,8 +701,9 @@ describe("deepCopyMessageEntity", () => {
       copied.custom_emoji_id = "987654321";
     }
     assertEquals(
-      customEmojiEntity.type === "custom_emoji" && customEmojiEntity.custom_emoji_id,
-      "123456789"
+      customEmojiEntity.type === "custom_emoji" &&
+        customEmojiEntity.custom_emoji_id,
+      "123456789",
     );
   });
 

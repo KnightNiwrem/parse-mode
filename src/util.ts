@@ -12,36 +12,24 @@ function deepCopyUser(user: User): User {
     first_name: user.first_name,
   };
 
-  // Copy optional properties if they exist
-  if (user.last_name !== undefined) {
-    copy.last_name = user.last_name;
-  }
-  if (user.username !== undefined) {
-    copy.username = user.username;
-  }
-  if (user.language_code !== undefined) {
-    copy.language_code = user.language_code;
-  }
-  if (user.is_premium !== undefined) {
-    copy.is_premium = user.is_premium;
-  }
-  if (user.added_to_attachment_menu !== undefined) {
-    copy.added_to_attachment_menu = user.added_to_attachment_menu;
-  }
-  if (user.can_join_groups !== undefined) {
-    copy.can_join_groups = user.can_join_groups;
-  }
-  if (user.can_read_all_group_messages !== undefined) {
-    copy.can_read_all_group_messages = user.can_read_all_group_messages;
-  }
-  if (user.supports_inline_queries !== undefined) {
-    copy.supports_inline_queries = user.supports_inline_queries;
-  }
-  if (user.can_connect_to_business !== undefined) {
-    copy.can_connect_to_business = user.can_connect_to_business;
-  }
-  if (user.has_main_web_app !== undefined) {
-    copy.has_main_web_app = user.has_main_web_app;
+  // Copy optional properties dynamically by checking known optional fields
+  const optionalFields: Array<keyof User> = [
+    "last_name",
+    "username",
+    "language_code",
+    "is_premium",
+    "added_to_attachment_menu",
+    "can_join_groups",
+    "can_read_all_group_messages",
+    "supports_inline_queries",
+    "can_connect_to_business",
+    "has_main_web_app",
+  ];
+
+  for (const field of optionalFields) {
+    if (user[field] !== undefined) {
+      copy[field] = user[field];
+    }
   }
 
   return copy;
@@ -53,40 +41,51 @@ function deepCopyUser(user: User): User {
  * @returns A deep copy of the message entity
  */
 export function deepCopyMessageEntity(entity: MessageEntity): MessageEntity {
-  // Create base copy with required properties
-  const copy: MessageEntity = {
-    type: entity.type,
-    offset: entity.offset,
-    length: entity.length,
-  } as MessageEntity;
-
-  // Handle type-specific properties
+  // Handle type-specific properties using discriminated union types
   switch (entity.type) {
     case "text_link":
       return {
-        ...copy,
-        url: (entity as any).url,
+        type: entity.type,
+        offset: entity.offset,
+        length: entity.length,
+        url: entity.url,
       };
     case "pre":
-      const preEntity = entity as any;
-      const preCopy: any = { ...copy };
-      if (preEntity.language !== undefined) {
-        preCopy.language = preEntity.language;
+      if (entity.language !== undefined) {
+        return {
+          type: entity.type,
+          offset: entity.offset,
+          length: entity.length,
+          language: entity.language,
+        };
+      } else {
+        return {
+          type: entity.type,
+          offset: entity.offset,
+          length: entity.length,
+        };
       }
-      return preCopy;
     case "custom_emoji":
       return {
-        ...copy,
-        custom_emoji_id: (entity as any).custom_emoji_id,
+        type: entity.type,
+        offset: entity.offset,
+        length: entity.length,
+        custom_emoji_id: entity.custom_emoji_id,
       };
     case "text_mention":
       return {
-        ...copy,
-        user: deepCopyUser((entity as any).user),
+        type: entity.type,
+        offset: entity.offset,
+        length: entity.length,
+        user: deepCopyUser(entity.user),
       };
     // For all other entity types, no additional properties need copying
     default:
-      return copy;
+      return {
+        type: entity.type,
+        offset: entity.offset,
+        length: entity.length,
+      };
   }
 }
 
