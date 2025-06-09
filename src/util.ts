@@ -262,7 +262,7 @@ export function consolidateEntities(
     if (!entityGroups.has(key)) {
       entityGroups.set(key, []);
     }
-    entityGroups.get(key)!.push({ ...entity });
+    entityGroups.get(key)!.push(deepCopyMessageEntity(entity));
   }
 
   const consolidated: MessageEntity[] = [];
