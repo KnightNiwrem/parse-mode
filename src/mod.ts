@@ -1,2 +1,2 @@
 export * from "./format.ts";
-export { deepCopyMessageEntity } from "./util.ts";
+export * from "./util.ts";
