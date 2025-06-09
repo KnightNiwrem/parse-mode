@@ -1,6 +1,52 @@
 import type { MessageEntity, User } from "./deps.deno.ts";
 
 /**
+ * Creates a deep copy of any object, handling primitives, arrays, and nested objects.
+ * @param obj The object to copy
+ * @returns A deep copy of the object
+ */
+function deepCopyObject<T>(obj: T): T {
+  // Handle null and undefined
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  // Handle primitive types
+  if (typeof obj !== "object") {
+    return obj;
+  }
+
+  // Handle Date objects
+  if (obj instanceof Date) {
+    return new Date(obj.getTime()) as T;
+  }
+
+  // Handle Arrays
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepCopyObject(item)) as T;
+  }
+
+  // Handle Objects
+  const copy = {} as T;
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      copy[key] = deepCopyObject(obj[key]);
+    }
+  }
+
+  return copy;
+}
+
+/**
+ * Creates a deep copy of a MessageEntity object.
+ * @param entity The message entity to copy
+ * @returns A deep copy of the message entity
+ */
+export function deepCopyMessageEntity(entity: MessageEntity): MessageEntity {
+  return deepCopyObject(entity);
+}
+
+/**
  * Compares two user objects for deep equality.
  * @param user1 First user object to compare
  * @param user2 Second user object to compare
@@ -172,7 +218,7 @@ export function consolidateEntities(
     if (!entityGroups.has(key)) {
       entityGroups.set(key, []);
     }
-    entityGroups.get(key)!.push({ ...entity });
+    entityGroups.get(key)!.push(deepCopyMessageEntity(entity));
   }
 
   const consolidated: MessageEntity[] = [];

@@ -1,5 +1,9 @@
 import type { MessageEntity } from "./deps.deno.ts";
-import { consolidateEntities, isEntitiesEqual } from "./util.ts";
+import {
+  consolidateEntities,
+  deepCopyMessageEntity,
+  isEntitiesEqual,
+} from "./util.ts";
 
 /**
  * Represents an entity tag used for formatting text via fmt.
@@ -702,9 +706,9 @@ export class FormattedString
         const intersectionStart = Math.max(entityStart, sliceStart);
         const intersectionEnd = Math.min(entityEnd, sliceEnd);
 
-        // Create new entity with adjusted offset and length
+        // Create new entity with adjusted offset and length using deep copy
         const newEntity: MessageEntity = {
-          ...entity,
+          ...deepCopyMessageEntity(entity),
           offset: intersectionStart - sliceStart,
           length: intersectionEnd - intersectionStart,
         };
