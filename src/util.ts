@@ -1,34 +1,36 @@
 import type { MessageEntity, User } from "./deps.deno.ts";
 
 /**
- * Creates a deep copy of a User object.
- * @param user The user object to copy
- * @returns A deep copy of the user object
+ * Creates a deep copy of any object, handling primitives, arrays, and nested objects.
+ * @param obj The object to copy
+ * @returns A deep copy of the object
  */
-function deepCopyUser(user: User): User {
-  const copy: User = {
-    id: user.id,
-    is_bot: user.is_bot,
-    first_name: user.first_name,
-  };
+function deepCopyObject<T>(obj: T): T {
+  // Handle null and undefined
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
 
-  // Copy optional properties dynamically by checking known optional fields
-  const optionalFields: Array<keyof User> = [
-    "last_name",
-    "username",
-    "language_code",
-    "is_premium",
-    "added_to_attachment_menu",
-    "can_join_groups",
-    "can_read_all_group_messages",
-    "supports_inline_queries",
-    "can_connect_to_business",
-    "has_main_web_app",
-  ];
+  // Handle primitive types
+  if (typeof obj !== "object") {
+    return obj;
+  }
 
-  for (const field of optionalFields) {
-    if (user[field] !== undefined) {
-      copy[field] = user[field];
+  // Handle Date objects
+  if (obj instanceof Date) {
+    return new Date(obj.getTime()) as T;
+  }
+
+  // Handle Arrays
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepCopyObject(item)) as T;
+  }
+
+  // Handle Objects
+  const copy = {} as T;
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      copy[key] = deepCopyObject(obj[key]);
     }
   }
 
@@ -41,52 +43,7 @@ function deepCopyUser(user: User): User {
  * @returns A deep copy of the message entity
  */
 export function deepCopyMessageEntity(entity: MessageEntity): MessageEntity {
-  // Handle type-specific properties using discriminated union types
-  switch (entity.type) {
-    case "text_link":
-      return {
-        type: entity.type,
-        offset: entity.offset,
-        length: entity.length,
-        url: entity.url,
-      };
-    case "pre":
-      if (entity.language !== undefined) {
-        return {
-          type: entity.type,
-          offset: entity.offset,
-          length: entity.length,
-          language: entity.language,
-        };
-      } else {
-        return {
-          type: entity.type,
-          offset: entity.offset,
-          length: entity.length,
-        };
-      }
-    case "custom_emoji":
-      return {
-        type: entity.type,
-        offset: entity.offset,
-        length: entity.length,
-        custom_emoji_id: entity.custom_emoji_id,
-      };
-    case "text_mention":
-      return {
-        type: entity.type,
-        offset: entity.offset,
-        length: entity.length,
-        user: deepCopyUser(entity.user),
-      };
-    // For all other entity types, no additional properties need copying
-    default:
-      return {
-        type: entity.type,
-        offset: entity.offset,
-        length: entity.length,
-      };
-  }
+  return deepCopyObject(entity);
 }
 
 /**
