@@ -1,5 +1,6 @@
 import type { MessageEntity } from "./deps.deno.ts";
 import { consolidateEntities, isEntitiesEqual } from "./util.ts";
+import { parseHTMLToFormattedStringData, type HTMLParseResult, parseHTML } from "./html-parser.ts";
 
 /**
  * Represents an entity tag used for formatting text via fmt.
@@ -433,6 +434,52 @@ export class FormattedString
   }
 
   /**
+   * Creates a FormattedString from HTML markup.
+   * Parses HTML tags and converts them to MessageEntity formatting.
+   * Supported tags: <b>, <strong>, <i>, <em>, <u>, <s>, <del>
+   * @param html The HTML string to parse
+   * @returns A new FormattedString with parsed text and entities
+   */
+  static fromHTML(html: string): FormattedString {
+    const { rawText, rawEntities } = parseHTMLToFormattedStringData(html);
+    return new FormattedString(rawText, rawEntities);
+  }
+
+  /**
+   * Creates a FormattedString from HTML markup with detailed parsing information.
+   * Returns both the FormattedString and any parsing warnings encountered.
+   * @param html The HTML string to parse
+   * @returns Object containing the FormattedString and parsing warnings
+   */
+  static fromHTMLWithWarnings(html: string): { formattedString: FormattedString; warnings: HTMLParseResult["warnings"] } {
+    const parseResult = parseHTML(html);
+    const formattedString = new FormattedString(parseResult.rawText, parseResult.rawEntities);
+    return {
+      formattedString,
+      warnings: parseResult.warnings
+    };
+  }
+
+  /**
+   * Concatenates multiple HTML strings into a single FormattedString
+   * @param htmlStrings Array of HTML strings to concatenate
+   * @param separator Optional separator to insert between HTML segments
+   * @returns A new FormattedString combining all parsed HTML segments
+   */
+  static concatHTML(htmlStrings: string[], separator?: string): FormattedString {
+    if (htmlStrings.length === 0) {
+      return new FormattedString("");
+    }
+
+    if (htmlStrings.length === 1) {
+      return FormattedString.fromHTML(htmlStrings[0]);
+    }
+
+    const formattedSegments = htmlStrings.map(html => FormattedString.fromHTML(html));
+    return FormattedString.join(formattedSegments, separator);
+  }
+
+  /**
    * Internal method that implements the shared splitting logic for both split and splitByText methods
    * @param text The FormattedString to split
    * @param separator The FormattedString separator to split by
@@ -702,6 +749,15 @@ export class FormattedString
    */
   plain(text: string) {
     return fmt`${this}${text}`;
+  }
+
+  /**
+   * Combines this FormattedString with HTML markup
+   * @param html The HTML string to parse and append
+   * @returns A new FormattedString combining this instance with the parsed HTML
+   */
+  html(html: string) {
+    return fmt`${this}${FormattedString.fromHTML(html)}`;
   }
 
   /**
@@ -1190,7 +1246,7 @@ export function fmt(
     ) {
       rawText += entityTagOrFormattedTextObject.text;
       rawEntities.push(
-        ...(entityTagOrFormattedTextObject.entities ?? []).map((e) => ({
+        ...(entityTagOrFormattedTextObject.entities ?? []).map((e: MessageEntity) => ({
           ...e,
           offset: rawText.length - entityTagOrFormattedTextObject.text.length +
             e.offset,
@@ -1204,7 +1260,7 @@ export function fmt(
     ) {
       rawText += entityTagOrFormattedTextObject.caption;
       rawEntities.push(
-        ...(entityTagOrFormattedTextObject.caption_entities ?? []).map((e) => ({
+        ...(entityTagOrFormattedTextObject.caption_entities ?? []).map((e: MessageEntity) => ({
           ...e,
           offset: rawText.length -
             entityTagOrFormattedTextObject.caption.length + e.offset,
