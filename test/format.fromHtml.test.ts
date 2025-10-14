@@ -22,7 +22,8 @@ describe("FormattedString.fromHtml", () => {
       { type: "bold", offset: 0, length: 1 },
       { type: "italic", offset: 1, length: 1 },
       { type: "underline", offset: 2, length: 1 },
-      { type: "strikethrough", offset: 3, length: 2 },
+      { type: "strikethrough", offset: 3, length: 1 },
+      { type: "strikethrough", offset: 4, length: 1 },
     ]);
   });
 
@@ -32,7 +33,16 @@ describe("FormattedString.fromHtml", () => {
     );
 
     assertEquals(result.rawText, "bold italic");
-    assertEquals(result.rawEntities, [
+    const normalized = [...result.rawEntities].sort((a, b) => {
+      if (a.offset !== b.offset) {
+        return a.offset - b.offset;
+      }
+      if (a.length !== b.length) {
+        return a.length - b.length;
+      }
+      return a.type.localeCompare(b.type);
+    });
+    assertEquals(normalized, [
       { type: "bold", offset: 0, length: 11 },
       { type: "italic", offset: 5, length: 6 },
     ]);

@@ -422,75 +422,126 @@ export class FormattedString
    */
   static fromHtml(html: string) {
     const nodes = parseHtml(html);
-    let rawText = "";
-    const entities: MessageEntity[] = [];
-    const stack: { tag: string; offset: number; type: MessageEntity["type"] }[]
-      = [];
+
+    type AstNode =
+      | { type: "text"; value: string }
+      | { type: "element"; name: string; children: AstNode[] };
+
+    type StackItem = { name: string | null; children: AstNode[] };
+
+    const root: StackItem = { name: null, children: [] };
+    const stack: StackItem[] = [root];
+
+    const appendText = (value: string) => {
+      if (value.length === 0) {
+        return;
+      }
+      const current = stack[stack.length - 1];
+      const last = current.children[current.children.length - 1];
+      if (last && last.type === "text") {
+        last.value += value;
+      } else {
+        current.children.push({ type: "text", value });
+      }
+    };
 
     for (const node of nodes) {
       if (node.type === "text") {
-        rawText += node.value;
-        continue;
-      }
-
-      if (node.type === "open") {
-        const entityType = HTML_TAG_TO_ENTITY_TYPE[node.name];
-        if (entityType === undefined) {
-          rawText += node.raw;
-          continue;
-        }
-        stack.push({
-          tag: node.name,
-          offset: rawText.length,
-          type: entityType,
-        });
+        appendText(node.value);
         continue;
       }
 
       const entityType = HTML_TAG_TO_ENTITY_TYPE[node.name];
-      if (entityType === undefined) {
-        rawText += node.raw;
+
+      if (node.type === "open") {
+        if (entityType === undefined) {
+          appendText(node.raw);
+          continue;
+        }
+        stack.push({ name: node.name, children: [] });
         continue;
       }
 
-      let matched = false;
-      for (let i = stack.length - 1; i >= 0; i--) {
-        const open = stack[i];
-        if (open.tag === node.name) {
-          stack.splice(i, 1);
-          if (open.offset !== rawText.length) {
-            entities.push({
-              type: entityType,
-              offset: open.offset,
-              length: rawText.length - open.offset,
-            } as MessageEntity);
-          }
-          matched = true;
-          break;
+      if (entityType === undefined) {
+        appendText(node.raw);
+        continue;
+      }
+
+      if (stack.length > 1 && stack[stack.length - 1].name === node.name) {
+        const item = stack.pop()!;
+        stack[stack.length - 1].children.push({
+          type: "element",
+          name: item.name!,
+          children: item.children,
+        });
+      } else {
+        appendText(node.raw);
+      }
+    }
+
+    while (stack.length > 1) {
+      const item = stack.pop()!;
+      stack[stack.length - 1].children.push({
+        type: "element",
+        name: item.name!,
+        children: item.children,
+      });
+    }
+
+    const wrapByType = (
+      type: MessageEntity["type"] | undefined,
+      content: FormattedString,
+    ) => {
+      if (!type || content.rawText.length === 0) {
+        return content;
+      }
+
+      switch (type) {
+        case "bold":
+          return FormattedString.bold(content);
+        case "italic":
+          return FormattedString.italic(content);
+        case "underline":
+          return FormattedString.underline(content);
+        case "strikethrough":
+          return FormattedString.strikethrough(content);
+        case "code":
+          return FormattedString.code(content);
+        case "pre":
+          return fmt`${() => ({ type: "pre" as const })}${content}${() => ({
+            type: "pre" as const,
+          })}`;
+        case "spoiler":
+          return FormattedString.spoiler(content);
+        case "blockquote":
+          return FormattedString.blockquote(content);
+        default:
+          return content;
+      }
+    };
+
+    const buildFormatted = (children: AstNode[]): FormattedString => {
+      let result: FormattedString | null = null;
+
+      for (const child of children) {
+        const formatted = child.type === "text"
+          ? new FormattedString(child.value)
+          : wrapByType(
+            HTML_TAG_TO_ENTITY_TYPE[child.name],
+            buildFormatted(child.children),
+          );
+
+        if (result === null) {
+          result = formatted;
+        } else {
+          result = fmt`${result}${formatted}`;
         }
       }
 
-      if (!matched) {
-        rawText += node.raw;
-      }
-    }
+      return result ?? new FormattedString("");
+    };
 
-    while (stack.length > 0) {
-      const open = stack.pop();
-      if (!open || open.offset === rawText.length) {
-        continue;
-      }
-      entities.push({
-        type: open.type,
-        offset: open.offset,
-        length: rawText.length - open.offset,
-      } as MessageEntity);
-    }
-
-    return new FormattedString(
-      rawText,
-      consolidateEntities(entities),
-    );
+    return buildFormatted(root.children);
   }
 
   /**
