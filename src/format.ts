@@ -1,4 +1,5 @@
 import type { MessageEntity } from "./deps.deno.ts";
+import { parseHtml } from "./html_parser.ts";
 import { consolidateEntities, isEntitiesEqual } from "./util.ts";
 
 /**
@@ -130,6 +131,23 @@ export interface TitleWithTitleEntities {
    */
   title_entities?: MessageEntity[];
 }
+
+const HTML_TAG_TO_ENTITY_TYPE: Record<string, MessageEntity["type"]> = {
+  b: "bold",
+  strong: "bold",
+  i: "italic",
+  em: "italic",
+  u: "underline",
+  ins: "underline",
+  s: "strikethrough",
+  strike: "strikethrough",
+  del: "strikethrough",
+  code: "code",
+  pre: "pre",
+  "tg-spoiler": "spoiler",
+  spoiler: "spoiler",
+  blockquote: "blockquote",
+};
 
 /**
  * Represents the formatted string after parsing. This class provides a unified
@@ -400,6 +418,82 @@ export class FormattedString
   }
 
   /**
+   * Parses an HTML string into a FormattedString.
+   */
+  static fromHtml(html: string) {
+    const nodes = parseHtml(html);
+    let rawText = "";
+    const entities: MessageEntity[] = [];
+    const stack: { tag: string; offset: number; type: MessageEntity["type"] }[]
+      = [];
+
+    for (const node of nodes) {
+      if (node.type === "text") {
+        rawText += node.value;
+        continue;
+      }
+
+      if (node.type === "open") {
+        const entityType = HTML_TAG_TO_ENTITY_TYPE[node.name];
+        if (entityType === undefined) {
+          rawText += node.raw;
+          continue;
+        }
+        stack.push({
+          tag: node.name,
+          offset: rawText.length,
+          type: entityType,
+        });
+        continue;
+      }
+
+      const entityType = HTML_TAG_TO_ENTITY_TYPE[node.name];
+      if (entityType === undefined) {
+        rawText += node.raw;
+        continue;
+      }
+
+      let matched = false;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const open = stack[i];
+        if (open.tag === node.name) {
+          stack.splice(i, 1);
+          if (open.offset !== rawText.length) {
+            entities.push({
+              type: entityType,
+              offset: open.offset,
+              length: rawText.length - open.offset,
+            } as MessageEntity);
+          }
+          matched = true;
+          break;
+        }
+      }
+
+      if (!matched) {
+        rawText += node.raw;
+      }
+    }
+
+    while (stack.length > 0) {
+      const open = stack.pop();
+      if (!open || open.offset === rawText.length) {
+        continue;
+      }
+      entities.push({
+        type: open.type,
+        offset: open.offset,
+        length: rawText.length - open.offset,
+      } as MessageEntity);
+    }
+
+    return new FormattedString(
+      rawText,
+      consolidateEntities(entities),
+    );
+  }
+
+  /**
    * Joins an array of formatted strings or plain text into a single FormattedString
    * @param items Array of text items to join (can be TextWithEntities, CaptionWithEntities, or string)
    * @param separator Optional separator to insert between items (defaults to empty string)
@@ -526,6 +620,13 @@ export class FormattedString
   }
 
   // Instance formatting methods
+  /**
+   * Parses an HTML string into a FormattedString.
+   */
+  fromHtml(html: string) {
+    return FormattedString.fromHtml(html);
+  }
+
   /**
    * Combines this FormattedString with a bold formatted string
    * @param text The text content to format as bold and append
