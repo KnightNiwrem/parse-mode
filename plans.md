@@ -1,0 +1,9 @@
+## Planned Improvements for `parseHtml`
+
+1. **Introduce robust attribute parsing:** Replace the current `split(" ")`/`JSON.parse` approach with a tokenizer that honours quoted strings, single quotes, escaped characters, and bare attributes (for flags like `expandable`). Shared helper should expose a typed attribute map with raw string values.
+2. **Track spoiler spans accurately:** Maintain a stack of recognised spoiler openings (both `<tg-spoiler>` and `<span class="tg-spoiler">`) and only close spoilers when a matching opener exists; fall back to literal text for unrelated `<span>` tags.
+3. **Implement spec-compliant code block parsing:** Detect nested `<pre><code class="language-...">` combinations, using the inner `<code>` class to set the `language` field, while ensuring inline `<code>` remains unaffected and nested `<code>` inside `<pre>` doesn’t produce duplicate entities.
+4. **Expand HTML entity decoding:** Support decimal and hexadecimal numeric entities plus graceful handling of incomplete sequences by flushing them verbatim; consider leveraging a lookup table for the limited named entities Telegram supports.
+5. **Add expandable blockquote support:** Recognise `<blockquote expandable>` (and equivalent attribute forms) and map it to `expandable_blockquote`, keeping regular blockquotes intact and respecting non-nestable rules.
+6. **Improve end-of-input recovery:** Ensure buffers accumulated in `STATE.TAG_OPEN`, `STATE.TAG_NAME`, or `STATE.ESCAPED_TEXT` are flushed to `textBuffer` on EOF, mirroring Telegram’s tolerance of malformed markup.
+7. **Testing strategy:** Augment the existing test suite with coverage for each bullet above—especially multiple attribute quoting styles, nested spoilers, language detection, numeric entities, expandable blockquotes, and malformed inputs to verify graceful degradation.
