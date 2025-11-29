@@ -19,6 +19,7 @@ import {
   u,
   underline,
 } from "./entity-tag.ts";
+import { parseHtml } from "./html-parser.ts";
 import { consolidateEntities, isEntitiesEqual } from "./util.ts";
 
 /**
@@ -551,6 +552,28 @@ export class FormattedString
     return FormattedString._split(text, separator, true);
   }
 
+  /**
+   * Parses Telegram Bot API HTML into a FormattedString.
+   * Uses a character-streaming FSM parser for efficient parsing.
+   *
+   * Supported tags: b, strong, i, em, u, ins, s, strike, del, code, pre,
+   * span.tg-spoiler, tg-spoiler, tg-emoji, a, blockquote
+   *
+   * @param html The HTML string to parse
+   * @returns A new FormattedString with the parsed text and entities
+   *
+   * @example
+   * ```typescript
+   * const formatted = FormattedString.fromHtml("<b>bold</b> and <i>italic</i>");
+   * // formatted.text === "bold and italic"
+   * // formatted.entities includes bold and italic entities
+   * ```
+   */
+  static fromHtml(html: string): FormattedString {
+    const { text, entities } = parseHtml(html);
+    return new FormattedString(text, consolidateEntities(entities));
+  }
+
   // Instance formatting methods
   /**
    * Combines this FormattedString with a bold formatted string
@@ -739,6 +762,24 @@ export class FormattedString
    */
   plain(text: string) {
     return fmt`${this}${text}`;
+  }
+
+  /**
+   * Parses Telegram Bot API HTML and appends it to this FormattedString.
+   * Uses a character-streaming FSM parser for efficient parsing.
+   *
+   * @param html The HTML string to parse and append
+   * @returns A new FormattedString combining this instance with the parsed HTML
+   *
+   * @example
+   * ```typescript
+   * const prefix = new FormattedString("Prefix: ");
+   * const result = prefix.fromHtml("<b>bold</b>");
+   * // result.text === "Prefix: bold"
+   * ```
+   */
+  fromHtml(html: string): FormattedString {
+    return fmt`${this}${FormattedString.fromHtml(html)}`;
   }
 
   /**
