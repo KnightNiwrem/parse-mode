@@ -1,4 +1,5 @@
 import type { MessageEntity } from "./deps.deno.ts";
+import { parseHtml } from "./html-parser.ts";
 import { consolidateEntities, isEntitiesEqual } from "./util.ts";
 
 /**
@@ -433,6 +434,37 @@ export class FormattedString
   }
 
   /**
+   * Parses HTML string and creates a FormattedString with appropriate entities.
+   * Supports the HTML-style formatting tags supported by Telegram Bot API.
+   *
+   * Supported tags:
+   * - `<b>`, `<strong>` - bold
+   * - `<i>`, `<em>` - italic
+   * - `<u>`, `<ins>` - underline
+   * - `<s>`, `<strike>`, `<del>` - strikethrough
+   * - `<code>` - inline code
+   * - `<pre>` - code block (supports `language` attribute)
+   * - `<a href="url">` - link
+   * - `<tg-spoiler>` or `<span class="tg-spoiler">` - spoiler
+   * - `<blockquote>` - blockquote
+   * - `<tg-emoji emoji-id="id">` - custom emoji
+   *
+   * @param html The HTML string to parse
+   * @returns A new FormattedString with parsed text and entities
+   *
+   * @example
+   * ```typescript
+   * const formatted = FormattedString.fromHtml("<b>Hello</b> <i>world</i>!");
+   * console.log(formatted.text); // "Hello world!"
+   * console.log(formatted.entities); // [{ type: "bold", offset: 0, length: 5 }, { type: "italic", offset: 6, length: 5 }]
+   * ```
+   */
+  static fromHtml(html: string): FormattedString {
+    const { textParts, entityTagParts } = parseHtml(html);
+    return fmt(textParts, ...entityTagParts);
+  }
+
+  /**
    * Internal method that implements the shared splitting logic for both split and splitByText methods
    * @param text The FormattedString to split
    * @param separator The FormattedString separator to split by
@@ -702,6 +734,37 @@ export class FormattedString
    */
   plain(text: string) {
     return fmt`${this}${text}`;
+  }
+
+  /**
+   * Parses HTML string and combines it with this FormattedString.
+   * Supports the HTML-style formatting tags supported by Telegram Bot API.
+   *
+   * Supported tags:
+   * - `<b>`, `<strong>` - bold
+   * - `<i>`, `<em>` - italic
+   * - `<u>`, `<ins>` - underline
+   * - `<s>`, `<strike>`, `<del>` - strikethrough
+   * - `<code>` - inline code
+   * - `<pre>` - code block (supports `language` attribute)
+   * - `<a href="url">` - link
+   * - `<tg-spoiler>` or `<span class="tg-spoiler">` - spoiler
+   * - `<blockquote>` - blockquote
+   * - `<tg-emoji emoji-id="id">` - custom emoji
+   *
+   * @param html The HTML string to parse and append
+   * @returns A new FormattedString combining this instance with the parsed HTML
+   *
+   * @example
+   * ```typescript
+   * const initial = new FormattedString("Hello ");
+   * const combined = initial.fromHtml("<b>world</b>!");
+   * console.log(combined.text); // "Hello world!"
+   * console.log(combined.entities); // [{ type: "bold", offset: 6, length: 5 }]
+   * ```
+   */
+  fromHtml(html: string): FormattedString {
+    return fmt`${this}${FormattedString.fromHtml(html)}`;
   }
 
   /**
@@ -1112,8 +1175,10 @@ export function code() {
  * `pre` entity tag. Cannot be combined with any other formats.
  * @param language The language of the code block.
  */
-export function pre(language: string) {
-  return buildFormatter<[language: string]>("pre", "language")(language);
+export function pre(language?: string) {
+  return buildFormatter<[language: string | undefined]>("pre", "language")(
+    language,
+  );
 }
 
 /**
@@ -1164,7 +1229,7 @@ export function expandableBlockquote() {
  * @returns A new FormattedString instance containing the formatted text and entities
  */
 export function fmt(
-  rawStringParts: TemplateStringsArray,
+  rawStringParts: TemplateStringsArray | string[],
   ...entityTagsOrFormattedTextObjects: (
     | Stringable
     | TextWithEntities
@@ -1249,7 +1314,7 @@ export function fmt(
     }) as MessageEntity
   ));
 
-  return new FormattedString(rawText, rawEntities);
+  return new FormattedString(rawText, consolidateEntities(rawEntities));
 }
 
 // Utility functions
