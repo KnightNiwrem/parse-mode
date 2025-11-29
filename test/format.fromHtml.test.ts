@@ -276,6 +276,19 @@ describe("FormattedString - fromHtml", () => {
         const result = FormattedString.fromHtml("&lt no semicolon");
         assertEquals(result.rawText, "&lt no semicolon");
       });
+
+      it("should handle invalid code points gracefully", () => {
+        // Lone surrogates (0xD800-0xDFFF) are invalid code points
+        const result1 = FormattedString.fromHtml("&#55296;"); // 0xD800
+        assertEquals(result1.rawText, "&#55296;");
+
+        const result2 = FormattedString.fromHtml("&#xD800;");
+        assertEquals(result2.rawText, "&#xD800;");
+
+        // Negative numbers
+        const result3 = FormattedString.fromHtml("&#-1;");
+        assertEquals(result3.rawText, "&#-1;");
+      });
     });
 
     describe("Edge cases", () => {

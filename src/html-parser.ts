@@ -85,16 +85,27 @@ interface TagStackEntry {
 }
 
 /**
+ * Checks if a code point is valid for String.fromCodePoint.
+ * Valid range: 0 to 0x10FFFF, excluding surrogates (0xD800-0xDFFF).
+ */
+function isValidCodePoint(code: number): boolean {
+  return code >= 0 && code <= 0x10FFFF &&
+    (code < 0xD800 || code > 0xDFFF);
+}
+
+/**
  * Decodes an HTML entity string (without & and ;)
  */
 function decodeEntity(entity: string): string {
   if (entity.startsWith("#x") || entity.startsWith("#X")) {
     const code = parseInt(entity.slice(2), 16);
-    return isNaN(code) ? `&${entity};` : String.fromCodePoint(code);
+    if (isNaN(code) || !isValidCodePoint(code)) return `&${entity};`;
+    return String.fromCodePoint(code);
   }
   if (entity.startsWith("#")) {
     const code = parseInt(entity.slice(1), 10);
-    return isNaN(code) ? `&${entity};` : String.fromCodePoint(code);
+    if (isNaN(code) || !isValidCodePoint(code)) return `&${entity};`;
+    return String.fromCodePoint(code);
   }
   return NAMED_ENTITIES[entity] ?? `&${entity};`;
 }
@@ -141,6 +152,7 @@ export function parseHtml(
       case State.TAG_OPEN:
         if (char === "/") {
           state = State.CLOSE_TAG_NAME;
+          currentTag = "";
         } else if (
           char === ">" || char === " " || char === "\t" || char === "\n" ||
           char === "\r"
