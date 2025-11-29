@@ -21,6 +21,8 @@ The following table lists the standard HTML tags and the corresponding `Formatte
 | **User Mention** | `<a href="tg://user?id=123456789">text</a>` | `FormattedString.mentionUser("text", 123456789)` | `mentionUser` (helper) |
 | **Custom Emoji** | `<tg-emoji emoji-id="5368324170671202286">👍</tg-emoji>` | `FormattedString.emoji("👍", "5368324170671202286")` | `emoji` |
 
+> **Note**: The API currently supports only the following named HTML entities: `&lt;`, `&gt;`, `&amp;` and `&quot;`.
+
 ## Usage Example
 
 ```typescript
@@ -31,7 +33,3 @@ import { fmt, bold, italic, link } from "@grammyjs/parse-mode";
 // but primarily sends entities directly to Telegram.
 const message = fmt`${bold("Hello")} <i>World</i>`;
 ```
-
-## Escaping
-
-When using `fmt` or `FormattedString`, the library handles necessary escaping automatically. You do not need to manually escape characters like `<`, `>`, `&`.

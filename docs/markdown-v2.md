@@ -38,8 +38,4 @@ const message2 = new FormattedString("Welcome!")
   .append(new FormattedString("website").link("https://grammy.dev"));
 ```
 
-## Escaping
-
-When using `fmt` or `FormattedString`, the library handles all necessary escaping for MarkdownV2 automatically. You do not need to manually escape special characters like `_`, `*`, `[`, `]`, `(`, `)`, `~`, `>`, `#`, `+`, `-`, `=`, `|`, `{`, `}`, `.`, `!`. 
-
 ```
