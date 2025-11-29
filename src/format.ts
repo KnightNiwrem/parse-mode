@@ -20,6 +20,7 @@ import {
   underline,
 } from "./entity-tag.ts";
 import { consolidateEntities, isEntitiesEqual } from "./util.ts";
+import { parseHtml } from "./html-parser.ts";
 
 /**
  * Objects that implement this interface implement a `.toString()`
@@ -426,6 +427,31 @@ export class FormattedString
   }
 
   /**
+   * Parses an HTML string and creates a FormattedString with the appropriate entities.
+   * Supports Telegram Bot API HTML-style formatting.
+   *
+   * @param html The HTML string to parse
+   * @returns A new FormattedString with the parsed text and entities
+   *
+   * @example
+   * ```typescript
+   * const formatted = FormattedString.fromHtml("<b>Hello</b> <i>World</i>");
+   * // formatted.text === "Hello World"
+   * // formatted.entities === [
+   * //   { type: "bold", offset: 0, length: 5 },
+   * //   { type: "italic", offset: 6, length: 5 }
+   * // ]
+   * ```
+   */
+  static fromHtml(html: string): FormattedString {
+    const { textParts, entityTagParts } = parseHtml(html);
+    const result = fmt(textParts, ...entityTagParts);
+    // Filter out zero-length entities (unmatched closing tags)
+    const filteredEntities = result.rawEntities.filter((e) => e.length > 0);
+    return new FormattedString(result.rawText, filteredEntities);
+  }
+
+  /**
    * Joins an array of formatted strings or plain text into a single FormattedString
    * @param items Array of text items to join (can be TextWithEntities, CaptionWithEntities, or string)
    * @param separator Optional separator to insert between items (defaults to empty string)
@@ -739,6 +765,25 @@ export class FormattedString
    */
   plain(text: string) {
     return fmt`${this}${text}`;
+  }
+
+  /**
+   * Parses an HTML string and appends it to this FormattedString.
+   * Supports Telegram Bot API HTML-style formatting.
+   *
+   * @param html The HTML string to parse and append
+   * @returns A new FormattedString combining this instance with the parsed HTML
+   *
+   * @example
+   * ```typescript
+   * const initial = new FormattedString("Hello ");
+   * const combined = initial.fromHtml("<b>World</b>");
+   * // combined.text === "Hello World"
+   * // combined.entities === [{ type: "bold", offset: 6, length: 5 }]
+   * ```
+   */
+  fromHtml(html: string): FormattedString {
+    return fmt`${this}${FormattedString.fromHtml(html)}`;
   }
 
   /**
