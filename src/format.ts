@@ -379,6 +379,7 @@ export class FormattedString
   }
 
   /**
+   * @deprecated Use `emoji` instead
    * Creates a custom emoji formatted string
    * @param placeholder The placeholder emoji text to display
    * @param emoji The custom emoji identifier
@@ -386,6 +387,16 @@ export class FormattedString
    */
   static customEmoji(placeholder: Stringable, emoji: string) {
     return customEmoji(placeholder, emoji);
+  }
+
+  /**
+   * Creates an emoji formatted string using custom emoji
+   * @param text The text content to format with custom emoji
+   * @param customEmojiId The custom emoji ID
+   * @returns A new FormattedString with emoji formatting applied
+   */
+  static emoji(text: Stringable, customEmojiId: string) {
+    return fmt`${emoji(customEmojiId)}${text}${emoji}`;
   }
 
   /**
@@ -675,6 +686,7 @@ export class FormattedString
   }
 
   /**
+   * @deprecated Use `emoji` instead
    * Combines this FormattedString with a custom emoji formatted string
    * @param placeholder The placeholder emoji text to display and append
    * @param emoji The custom emoji identifier
@@ -682,6 +694,16 @@ export class FormattedString
    */
   customEmoji(placeholder: Stringable, emoji: string) {
     return fmt`${this}${FormattedString.customEmoji(placeholder, emoji)}`;
+  }
+
+  /**
+   * Combines this FormattedString with an emoji formatted string using custom emoji
+   * @param text The text content to format with custom emoji and append
+   * @param customEmojiId The custom emoji ID
+   * @returns A new FormattedString combining this instance with emoji formatting
+   */
+  emoji(text: Stringable, customEmojiId: string) {
+    return fmt`${this}${FormattedString.emoji(text, customEmojiId)}`;
   }
 
   /**
@@ -1112,8 +1134,10 @@ export function code() {
  * `pre` entity tag. Cannot be combined with any other formats.
  * @param language The language of the code block.
  */
-export function pre(language: string) {
-  return buildFormatter<[language: string]>("pre", "language")(language);
+export function pre(language?: string) {
+  return buildFormatter<[language: string | undefined]>("pre", "language")(
+    language,
+  );
 }
 
 /**
@@ -1121,6 +1145,17 @@ export function pre(language: string) {
  */
 export function spoiler() {
   return buildFormatter("spoiler")();
+}
+
+/**
+ * `custom_emoji` entity tag. Incompatible with `code` and `pre`.
+ * @param customEmojiId The custom emoji ID.
+ */
+export function emoji(customEmojiId: string) {
+  return buildFormatter<[customEmojiId: string]>(
+    "custom_emoji",
+    "custom_emoji_id",
+  )(customEmojiId);
 }
 
 /**
