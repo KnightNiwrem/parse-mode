@@ -352,7 +352,7 @@ export class FormattedString
    * @param language The programming language for syntax highlighting
    * @returns A new FormattedString with pre formatting applied
    */
-  static pre(text: Stringable, language: string) {
+  static pre(text: Stringable, language?: string) {
     return fmt`${pre(language)}${text}${pre}`;
   }
 
@@ -659,7 +659,7 @@ export class FormattedString
    * @param language The programming language for syntax highlighting
    * @returns A new FormattedString combining this instance with pre formatting
    */
-  pre(text: Stringable, language: string) {
+  pre(text: Stringable, language?: string) {
     return fmt`${this}${FormattedString.pre(text, language)}`;
   }
 
