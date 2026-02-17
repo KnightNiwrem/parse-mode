@@ -1,5 +1,4 @@
 import type { MessageEntity } from "./deps.deno.ts";
-import { FormattedString } from "./format.ts";
 
 const supportedEntities = ["amp", "lt", "gt", "quot"];
 const supportedTags = [
@@ -23,6 +22,12 @@ const supportedAttributes = [
   ...supportedBareAttributes,
   ...supportedValuedAttributes,
 ];
+
+const tagsToRequiredAttributes = new Map<string, string[]>([
+  ["a", ["href"]],
+  ["span", ["class"]],
+  ["tg-emoji", ["emoji-id"]],
+]);
 
 const maxCharCode = 65535;
 
@@ -59,6 +64,9 @@ export class HTMLStreamParser {
 
   private fallbackBufferText: string = "";
   private workingBufferText: string = "";
+
+  private attributeNameBufferText: string = "";
+  private attibuteValueBufferText: string = "";
   private attributeValueQuoteChar: string | undefined = undefined;
 
   private workingTag: HTMLTagDraft | undefined = undefined;
@@ -69,6 +77,18 @@ export class HTMLStreamParser {
    */
   constructor() {}
 
+  private isValidOpenTagFromHTMLTagDraft(workingTag: HTMLTagDraft): boolean {
+    if (!supportedTagsSet.has(workingTag.name)) {
+      return false;
+    }
+    for (const requiredAttr of tagsToRequiredAttributes.get(workingTag.name) ?? []) {
+      if (!workingTag.attrs.has(requiredAttr)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private addCharInAttributeInvalidMode(char: string): void {
     if (!this.workingTag) {
       throw new Error("No working tag in ATTR_INVALID mode");
@@ -76,8 +96,13 @@ export class HTMLStreamParser {
 
     this.workingTag.originalText += char;
     if (char === ">") {
-      const tagStack = this.tagStacks.get(this.workingTag.name);
-      tagStack?.push(this.workingTag);
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+      if (isValidOpenTag) {
+        const tagStack = this.tagStacks.get(this.workingTag.name);
+        tagStack?.push(this.workingTag);
+      } else {
+        this.text += this.workingTag.originalText;
+      }
 
       this.fallbackBufferText = "";
       this.workingBufferText = "";
@@ -101,12 +126,18 @@ export class HTMLStreamParser {
       const attrName = this.workingBufferText;
       this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
       if (supportedBareAttributesSet.has(attrName)) {
+        // If the attribute is seen, the new value is not applied
         const attrValue = this.workingTag.attrs.get(attrName) ?? "true";
         this.workingTag.attrs.set(attrName, attrValue);
       }
 
-      const tagStack = this.tagStacks.get(this.workingTag.name);
-      tagStack?.push(this.workingTag);
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+      if (isValidOpenTag) {
+        const tagStack = this.tagStacks.get(this.workingTag.name);
+        tagStack?.push(this.workingTag);
+      } else {
+        this.text += this.workingTag.originalText;
+      }
       this.fallbackBufferText = "";
       this.workingBufferText = "";
       this.mode = HTML_STREAM_PARSER_MODE.TEXT;
@@ -132,6 +163,7 @@ export class HTMLStreamParser {
       this.fallbackBufferText = "";
       this.workingBufferText = "";
       if (supportedValuedAttributesSet.has(attrName)) {
+        this.attributeNameBufferText = attrName;
         this.mode = HTML_STREAM_PARSER_MODE.ATTR_VALUE;
       } else {
         this.mode = HTML_STREAM_PARSER_MODE.ATTR_INVALID;
@@ -164,7 +196,7 @@ export class HTMLStreamParser {
     }
 
     const isWhitespace = char.trim() === "";
-    if (this.workingBufferText === "") {
+    if (this.workingBufferText === "" && this.attributeValueQuoteChar === undefined) {
       if (isWhitespace) {
         this.fallbackBufferText += char;
         return;
@@ -178,15 +210,19 @@ export class HTMLStreamParser {
 
     if (char === this.attributeValueQuoteChar) {
       const attrValue = this.workingBufferText;
-      const attrName = Array.from(this.workingTag.attrs.keys()).pop()!; // wrong
+      const attrName = this.attributeNameBufferText;
       this.workingTag.attrs.set(attrName, attrValue);
       this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
       this.fallbackBufferText = "";
       this.workingBufferText = "";
+      this.attributeNameBufferText = "";
       this.attributeValueQuoteChar = undefined;
       this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
       return;
     }
+
+    this.fallbackBufferText += char;
+    this.workingBufferText += char;
   }
 
   private addCharInCloseTagNameMode(char: string): void {
@@ -199,11 +235,25 @@ export class HTMLStreamParser {
           // No matching opening tag, treat as text
           this.text += `${this.fallbackBufferText}${char}`;
         } else {
-          this.entities.push({
-            type: workingTag.name, // Need to handle mapping blockquote with expandable attribute to correct entity type
-            offset: workingTag.offset,
-            length: this.text.length - workingTag.offset,
-          });
+          if (workingTag.name === "blockquote" && workingTag.attrs.has("expandable")) {
+              this.entities.push({
+              type: "expandable_blockquote",
+              offset: workingTag.offset,
+              length: this.text.length - workingTag.offset,
+            });
+          } else if (workingTag.name === "span" && workingTag.attrs.get("class") === "tg-spoiler") {
+            this.entities.push({
+              type: "spoiler",
+              offset: workingTag.offset,
+              length: this.text.length - workingTag.offset,
+            });
+          } else {
+            this.entities.push({
+              type: workingTag.name,
+              offset: workingTag.offset,
+              length: this.text.length - workingTag.offset,
+            });
+          }
         }
       } else {
         this.text += `${this.fallbackBufferText}${char}`;
@@ -451,7 +501,7 @@ export class HTMLStreamParser {
 }
 
 const p = new HTMLStreamParser();
-p.add('<blockquote   expandble expandable epand>This is an expandable blockquote &amp; test.</blockquote>');
+p.add('<span class="tg-spoiler">This is a spoiler tag &amp; test.');
 
 //@ts-expect-error
 console.log(p.text);
