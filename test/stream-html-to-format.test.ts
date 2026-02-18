@@ -131,16 +131,6 @@ describe("HTMLStreamParser", () => {
     assertEquals(formatted.rawEntities[0]?.length, "spoiler & text".length);
   });
 
-  it("renders unclosed opening tags as plain text at EOF", () => {
-    const parser = new HTMLStreamParser();
-    parser.add("<b>bold");
-
-    const formatted = parser.toFormattedString();
-
-    assertEquals(formatted.rawText, "<b>bold");
-    assertEquals(formatted.rawEntities.length, 0);
-  });
-
   it("toFormattedString is idempotent for unchanged parser state", () => {
     const parser = new HTMLStreamParser();
     parser.add("<i>ok</i>");

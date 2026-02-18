@@ -1,7 +1,8 @@
 import type { MessageEntity } from "./deps.deno.ts";
+import { FormattedString } from "./format.ts";
 
-const supportedEntities = ["amp", "lt", "gt", "quot"];
-const supportedTags = [
+export const supportedEntities = ["amp", "lt", "gt", "quot"];
+export const supportedTags = [
   "b",
   "strong",
   "i",
@@ -19,26 +20,26 @@ const supportedTags = [
   "pre",
   "blockquote",
 ];
-const supportedTagsSet: Set<string> = new Set(supportedTags);
+export const supportedTagsSet: Set<string> = new Set(supportedTags);
 
-const supportedBareAttributes = ["expandable"];
-const supportedBareAttributesSet = new Set(supportedBareAttributes);
-const supportedValuedAttributes = ["class", "href", "emoji-id"];
-const supportedValuedAttributesSet = new Set(supportedValuedAttributes);
-const supportedAttributes = [
+export const supportedBareAttributes = ["expandable"];
+export const supportedBareAttributesSet = new Set(supportedBareAttributes);
+export const supportedValuedAttributes = ["class", "href", "emoji-id"];
+export const supportedValuedAttributesSet = new Set(supportedValuedAttributes);
+export const supportedAttributes = [
   ...supportedBareAttributes,
   ...supportedValuedAttributes,
 ];
 
-const tagsToRequiredAttributes = new Map<string, string[]>([
+export const tagsToRequiredAttributes = new Map<string, string[]>([
   ["a", ["href"]],
   ["span", ["class"]],
   ["tg-emoji", ["emoji-id"]],
 ]);
 
-const languageClassPrefix = "language-";
-const spoilerClassName = "tg-spoiler";
-const maxCharCode = 65535;
+export const languageClassPrefix = "language-";
+export const spoilerClassName = "tg-spoiler";
+export const maxCharCode = 65535;
 
 export function isWhitespace(char: string): boolean {
   return char.trim() === "";
@@ -250,52 +251,52 @@ export class HTMLStreamParser {
     return true;
   }
 
-  private buildEntityFromClosedTag(
-    workingTag: HTMLTagDraft,
+  private buildEntityFromOpenTag(
+    openTag: HTMLTagDraft,
   ): MessageEntity | undefined {
-    const length = this.text.length - workingTag.offset;
+    const length = this.text.length - openTag.offset;
     if (length < 0) {
       return undefined;
     }
 
-    switch (workingTag.name) {
+    switch (openTag.name) {
       case "b":
       case "strong":
-        return { type: "bold", offset: workingTag.offset, length };
+        return { type: "bold", offset: openTag.offset, length };
       case "i":
       case "em":
-        return { type: "italic", offset: workingTag.offset, length };
+        return { type: "italic", offset: openTag.offset, length };
       case "u":
       case "ins":
-        return { type: "underline", offset: workingTag.offset, length };
+        return { type: "underline", offset: openTag.offset, length };
       case "s":
       case "strike":
       case "del":
-        return { type: "strikethrough", offset: workingTag.offset, length };
+        return { type: "strikethrough", offset: openTag.offset, length };
       case "span":
       case "tg-spoiler":
-        return { type: "spoiler", offset: workingTag.offset, length };
+        return { type: "spoiler", offset: openTag.offset, length };
       case "a": {
-        const url = workingTag.attrs.get("href");
+        const url = openTag.attrs.get("href");
         if (!url) {
           return undefined;
         }
-        return { type: "text_link", offset: workingTag.offset, length, url };
+        return { type: "text_link", offset: openTag.offset, length, url };
       }
       case "tg-emoji": {
-        const customEmojiId = workingTag.attrs.get("emoji-id");
+        const customEmojiId = openTag.attrs.get("emoji-id");
         if (!customEmojiId) {
           return undefined;
         }
         return {
           type: "custom_emoji",
-          offset: workingTag.offset,
+          offset: openTag.offset,
           length,
           custom_emoji_id: customEmojiId,
         };
       }
       case "code": {
-        const classValue = workingTag.attrs.get("class");
+        const classValue = openTag.attrs.get("class");
         const language = classValue
           ? this.extractLanguageFromCodeClass(classValue)
           : undefined;
@@ -304,29 +305,29 @@ export class HTMLStreamParser {
           const openPreTag = preStack && preStack.length > 0
             ? preStack[preStack.length - 1]
             : undefined;
-          if (openPreTag && openPreTag.offset <= workingTag.offset) {
+          if (openPreTag && openPreTag.offset <= openTag.offset) {
             openPreTag.attrs.set("language", language);
             return undefined;
           }
         }
-        return { type: "code", offset: workingTag.offset, length };
+        return { type: "code", offset: openTag.offset, length };
       }
       case "pre": {
-        const language = workingTag.attrs.get("language");
+        const language = openTag.attrs.get("language");
         if (language) {
-          return { type: "pre", offset: workingTag.offset, length, language };
+          return { type: "pre", offset: openTag.offset, length, language };
         }
-        return { type: "pre", offset: workingTag.offset, length };
+        return { type: "pre", offset: openTag.offset, length };
       }
       case "blockquote":
-        if (workingTag.attrs.has("expandable")) {
+        if (openTag.attrs.has("expandable")) {
           return {
             type: "expandable_blockquote",
-            offset: workingTag.offset,
+            offset: openTag.offset,
             length,
           };
         }
-        return { type: "blockquote", offset: workingTag.offset, length };
+        return { type: "blockquote", offset: openTag.offset, length };
       default:
         return undefined;
     }
@@ -400,7 +401,8 @@ export class HTMLStreamParser {
     const isWhitespaceChar = isWhitespace(char);
     if (char === ">" || isWhitespaceChar) {
       // Only respect the first seen attr value for the attr name
-      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ?? this.workingBufferText;
+      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ??
+        this.workingBufferText;
       this.workingTag.attrs.set(this.workingAttributeName, attrValue);
 
       // We can clear attribute related buffers now that we have completed a attr name-value pair
@@ -410,7 +412,9 @@ export class HTMLStreamParser {
 
     // If `>` in bare mode, we are now ending opening tag, so just add to stack of working tags if valid
     if (char === ">") {
-      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(
+        this.workingTag,
+      );
       if (isValidOpenTag) {
         this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
       } else {
@@ -445,7 +449,8 @@ export class HTMLStreamParser {
     // After completing attr value, we must decide if building next attr name or ending opening tag
     if (char === this.attributeValueQuoteChar) {
       // Only respect the first seen attr value for the attr name
-      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ?? this.workingBufferText;
+      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ??
+        this.workingBufferText;
       this.workingTag.attrs.set(this.workingAttributeName, attrValue);
 
       // We can clear attribute related buffers now that we have completed a attr name-value pair
@@ -504,7 +509,10 @@ export class HTMLStreamParser {
     // If `>`, then we are ending this opening tag, so just add to stack of working tags if valid
     const lastMatchingOpenTag = this.tagStacks.get(this.workingTag.name)?.pop();
     if (lastMatchingOpenTag) {
-      // TODO: build MessageEntity from opening tag and closing tag
+      const entity = this.buildEntityFromOpenTag(lastMatchingOpenTag);
+      if (entity) {
+        this.entities.push(entity);
+      }
     } else {
       this.text += this.fullTagOrEntityBufferText;
     }
@@ -516,19 +524,24 @@ export class HTMLStreamParser {
 
     // This case should never hold true unless there is a logic bug
     if (!this.workingTag) {
-      throw new Error(`No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_NAME} mode`);
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_NAME} mode`,
+      );
     }
     this.workingTag.originalText = this.fullTagOrEntityBufferText;
 
     // If not `>`, nothing to do but to continue seeking
-    if (char !== '>') {
+    if (char !== ">") {
       return;
     }
 
     // If `>`, then we are ending this opening tag, so just add to stack of working tags if valid
     const lastMatchingOpenTag = this.tagStacks.get(this.workingTag.name)?.pop();
     if (lastMatchingOpenTag) {
-      // TODO: build MessageEntity from opening tag and closing tag
+      const entity = this.buildEntityFromOpenTag(lastMatchingOpenTag);
+      if (entity) {
+        this.entities.push(entity);
+      }
     } else {
       this.text += this.fullTagOrEntityBufferText;
     }
@@ -766,8 +779,9 @@ export class HTMLStreamParser {
 
     // If `=`, then we want to start building attr value, and
     // must decide if bare or quoted
-    if (char === '=') {
-      this.mode = HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED;
+    if (char === "=") {
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED;
       return;
     }
 
@@ -930,16 +944,13 @@ export class HTMLStreamParser {
       }
     }
   }
+
+  /**
+   * Build and return a FormattedString from the accumulated text and entities.
+   *
+   * @returns A new FormattedString instance containing the parsed text and entities
+   */
+  toFormattedString(): FormattedString {
+    return new FormattedString(this.text, this.entities);
+  }
 }
-
-const s = new HTMLStreamParser();
-s.add('Sometimes you <b >might find that 5 < 10 but 16 > 15!');
-
-//@ts-expect-error test
-console.log(s.text);
-
-//@ts-expect-error test
-console.log(s.workingTag);
-
-//@ts-expect-error test
-console.log(s.tagStacks);
