@@ -670,7 +670,7 @@ export class HTMLStreamParser {
 
     // Decimal numeric entities are case-insensitive, but
     // this means nothing for decimal digits
-    this.workingBufferText = char;
+    this.workingBufferText += char;
     if (!isDecimalDigit(char)) {
       this.text += this.fullTagOrEntityBufferText;
       this.resetWorkState();
@@ -695,7 +695,7 @@ export class HTMLStreamParser {
 
     // Hexadecimal entities are case-insensitive, so we standardise
     // working buffer to only contain lowercased hex characters
-    this.workingBufferText = char.toLowerCase();
+    this.workingBufferText += char.toLowerCase();
     if (!isHexDigit(char)) {
       this.text += this.fullTagOrEntityBufferText;
       this.resetWorkState();
