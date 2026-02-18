@@ -803,7 +803,10 @@ export class HTMLStreamParser {
       return;
     }
 
-    // Else, we are starting a new attribute name
+    // Else, we are starting a new attribute name.
+    // Commit the previous attribute name as a bare attribute first.
+    this.setBareAttribute(this.workingAttributeName);
+    this.workingAttributeName = "";
     this.workingBufferText = char.toLowerCase();
     this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
   }
