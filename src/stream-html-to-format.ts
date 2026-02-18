@@ -863,12 +863,12 @@ export class HTMLStreamParser {
   private addCharInDecisionNumericEntityOrHexEntityMode(char: string): void {
     this.fullTagOrEntityBufferText += char;
 
-    if (char === "x") {
+    if (char === "x" || char === "X") {
       this.mode = HTML_STREAM_PARSER_MODE.HEX_ENTITY;
       return;
     }
 
-    // If first character is not `x`, then is regular decimal numeric
+    // If first character is not `x` or `X`, then this is a regular decimal numeric
     // entity, which is case-insensitive but irrelevant for decimal digits
     this.workingBufferText += char;
     if (!isDecimalDigit(char)) {
