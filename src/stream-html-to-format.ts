@@ -1,5 +1,6 @@
 import type { MessageEntity } from "./deps.deno.ts";
 import { FormattedString } from "./format.ts";
+import { copyMessageEntity } from "./util.ts";
 
 export const supportedEntities = ["amp", "lt", "gt", "quot"];
 export const supportedTags = [
@@ -954,6 +955,7 @@ export class HTMLStreamParser {
    * @returns A new FormattedString instance containing the parsed text and entities
    */
   toFormattedString(): FormattedString {
-    return new FormattedString(this.text, this.entities);
+    const copyEntities = this.entities.map(copyMessageEntity);
+    return new FormattedString(this.text, copyEntities);
   }
 }

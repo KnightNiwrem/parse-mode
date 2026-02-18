@@ -271,3 +271,20 @@ export function sortEntities(
 ): MessageEntity[] {
   return [...entities].sort(compareEntities);
 }
+
+/**
+ * Creates a deep copy of a MessageEntity.
+ * This is a temporary workaround for Node 12 support. Once Node 17+ becomes
+ * the minimum version, this can be replaced with structuredClone().
+ * @param entity The MessageEntity to copy
+ * @returns A deep copy of the entity
+ */
+export function copyMessageEntity(entity: MessageEntity): MessageEntity {
+  // Only entity.user is a non-primitive at this moment
+  const copy = {
+    ...entity,
+    ...("user" in entity ? { user: entity.user } : {}),
+  };
+
+  return copy;
+}
