@@ -767,7 +767,7 @@ export class HTMLStreamParser {
     // This case should never hold true unless there is a logic bug
     if (!this.workingTag) {
       throw new Error(
-        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END} mode`,
+        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_OR_ATTR_NAME_OR_OPEN_TAG_END} mode`,
       );
     }
     this.workingTag.originalText = this.fullTagOrEntityBufferText;
