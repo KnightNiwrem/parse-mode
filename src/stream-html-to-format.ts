@@ -2,11 +2,17 @@ import type { MessageEntity } from "./deps.deno.ts";
 
 const supportedEntities = ["amp", "lt", "gt", "quot"];
 const supportedTags = [
-  "b", "strong",
-  "i", "em",
-  "u", "ins",
-  "s", "strike", "del",
-  "span", "tg-spoiler",
+  "b",
+  "strong",
+  "i",
+  "em",
+  "u",
+  "ins",
+  "s",
+  "strike",
+  "del",
+  "span",
+  "tg-spoiler",
   "a",
   "tg-emoji",
   "code",
@@ -14,6 +20,7 @@ const supportedTags = [
   "blockquote",
 ];
 const supportedTagsSet: Set<string> = new Set(supportedTags);
+
 const supportedBareAttributes = ["expandable"];
 const supportedBareAttributesSet = new Set(supportedBareAttributes);
 const supportedValuedAttributes = ["class", "href", "emoji-id"];
@@ -29,19 +36,89 @@ const tagsToRequiredAttributes = new Map<string, string[]>([
   ["tg-emoji", ["emoji-id"]],
 ]);
 
+const languageClassPrefix = "language-";
+const spoilerClassName = "tg-spoiler";
 const maxCharCode = 65535;
+
+export function isWhitespace(char: string): boolean {
+  return char.trim() === "";
+}
+
+export function isSupportedTagPrefix(prefix: string): boolean {
+  return supportedTags.some((tag) => tag.startsWith(prefix));
+}
+
+export function isSupportedAttributePrefix(prefix: string): boolean {
+  return supportedAttributes.some((attr) => attr.startsWith(prefix));
+}
+
+export function isSupportedEntityPrefix(prefix: string): boolean {
+  return supportedEntities.some((entity) => entity.startsWith(prefix));
+}
+
+export function isAlphabet(char: string): boolean {
+  return (char >= "a" && char <= "z") ||
+    (char >= "A" && char <= "Z");
+}
+
+export function isDecimalDigit(char: string): boolean {
+  return char >= "0" && char <= "9";
+}
+
+export function isHexDigit(char: string): boolean {
+  return isDecimalDigit(char) ||
+    (char >= "a" && char <= "f") ||
+    (char >= "A" && char <= "F");
+}
+
+export function isValidCharCode(charCode: number): boolean {
+  return !isNaN(charCode) && charCode >= 0 && charCode <= maxCharCode;
+}
 
 const HTML_STREAM_PARSER_MODE = {
   TEXT: "TEXT",
-  TAG_OPEN: "TAG_OPEN",
   OPEN_TAG_NAME: "OPEN_TAG_NAME",
   CLOSE_TAG_NAME: "CLOSE_TAG_NAME",
+  CLOSE_TAG_SEEK_END: "CLOSE_TAG_SEEK_END",
   ATTR_NAME: "ATTR_NAME",
-  ATTR_VALUE: "ATTR_VALUE",
-  ATTR_INVALID: "ATTR_INVALID",
-  ENTITY_START: "ENTITY_START",
-  ENTITY_NUMERIC_START: "ENTITY_NUMERIC_START",
-  ENTITY_HEX_START: "ENTITY_HEX_START",
+  ATTR_VALUE_BARE: "ATTR_VALUE_BARE",
+  ATTR_VALUE_QUOTED: "ATTR_VALUE_QUOTED",
+  HTML_ENTITY: "HTML_ENTITY",
+  NUMERIC_ENTITY: "NUMERIC_ENTITY",
+  HEX_ENTITY: "HEX_ENTITY",
+
+  // After `<`, we need to decide if this is
+  // open tag,
+  // close tag, or
+  // malformed (i.e. plaintext)
+  DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME:
+    "DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME",
+  // After ` ` following open tag name, we need to decide if we should
+  // build attr name or
+  // end open tag
+  DECISION_ATTR_NAME_OR_OPEN_TAG_END: "DECISION_ATTR_NAME_OR_OPEN_TAG_END",
+  // After ` ` following attr name, we need to decide if we are
+  // building next attr name, or
+  // building attr value for this attr, or
+  // end open tag
+  DECISION_ATTR_VALUE_OR_ATTR_NAME_OR_OPEN_TAG_END:
+    "DECISION_ATTR_VALUE_OR_ATTR_NAME_OR_OPEN_TAG_END",
+  // After `=` following attr name, we need to decide if we are
+  // building bare attr value for this attr, or
+  // quoted attr value for this attr
+  DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED:
+    "DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED",
+  // After `&`, we need to decide if this is
+  // non-numeric html entity (e.g. &ammp;), or
+  // numeric decimal entity (e.g. &#123;), or
+  // numeric hexadecimal entity (e.g. (&#x3a;))
+  DECISION_HTML_ENTITY_OR_NUMERIC_ENTITY_OR_HEX_ENTITY:
+    "DECISION_HTML_ENTITY_OR_NUMERIC_ENTITY_OR_HEX_ENTITY",
+  // After `#` following `&`, we need to decide if this is
+  // numeric decimal entity (e.g. &#123;), or
+  // numeric hexadecimal entity (e.g. (&#x3a;))
+  DECISION_NUMERIC_ENTITY_OR_HEX_ENTITY:
+    "DECISION_NUMERIC_ENTITY_OR_HEX_ENTITY",
 } as const;
 
 type HTMLTagDraft = {
@@ -57,236 +134,481 @@ type HTMLTagDraft = {
  * @see https://core.telegram.org/bots/api#html-style
  */
 export class HTMLStreamParser {
-  private mode: keyof typeof HTML_STREAM_PARSER_MODE = HTML_STREAM_PARSER_MODE.TEXT;
+  private mode: keyof typeof HTML_STREAM_PARSER_MODE =
+    HTML_STREAM_PARSER_MODE.TEXT;
 
   private text: string = "";
   private entities: MessageEntity[] = [];
 
-  private fallbackBufferText: string = "";
+  // This represents the original text of
+  // an entire HTML tag (e.g. `<blockquote expandable>`), or
+  // an entire HTML entity (e.g. `&#x3A;`)
+  private fullTagOrEntityBufferText: string = "";
+  // This represents the post-processed text of the entity/tag being worked on in the current mode
   private workingBufferText: string = "";
 
-  private attributeNameBufferText: string = "";
-  private attibuteValueBufferText: string = "";
+  // This represent the current attribute that is being worked on
+  // e.g. when working buffer is used for attribute value
+  private workingAttributeName: string = "";
   private attributeValueQuoteChar: string | undefined = undefined;
 
   private workingTag: HTMLTagDraft | undefined = undefined;
-  private tagStacks: Map<string, HTMLTagDraft[]> = new Map(supportedTags.map((tag) => [tag, []]));
 
-  /**
-   * Creates a new HTMLStreamParser instance.
-   */
-  constructor() {}
+  // We use a Map of HTMLTagDraft stacks so that we can retrieve the last matching open tag quickly
+  private tagStacks: Map<string, HTMLTagDraft[]> = new Map(
+    supportedTags.map((tag) => [tag, []]),
+  );
+
+  private resetWorkState(): void {
+    this.fullTagOrEntityBufferText = "";
+    this.workingBufferText = "";
+    this.workingAttributeName = "";
+    this.attributeValueQuoteChar = undefined;
+    this.workingTag = undefined;
+    this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+  }
+
+  private tokenizeByWhitespace(value: string): string[] {
+    const tokens: string[] = [];
+    let token = "";
+    for (const char of value) {
+      if (isWhitespace(char)) {
+        if (token !== "") {
+          tokens.push(token);
+          token = "";
+        }
+      } else {
+        token += char;
+      }
+    }
+    if (token !== "") {
+      tokens.push(token);
+    }
+    return tokens;
+  }
+
+  private hasClass(classValue: string, targetClass: string): boolean {
+    for (const token of this.tokenizeByWhitespace(classValue)) {
+      if (token === targetClass) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private extractLanguageFromCodeClass(classValue: string): string | undefined {
+    for (const token of this.tokenizeByWhitespace(classValue)) {
+      if (
+        token.startsWith(languageClassPrefix) &&
+        token.length > languageClassPrefix.length
+      ) {
+        return token.slice(languageClassPrefix.length);
+      }
+    }
+    return undefined;
+  }
+
+  private setBareAttribute(attrName: string): void {
+    return this.setValuedAttribute(attrName, "true");
+  }
+
+  private setValuedAttribute(attrName: string, attrValue: string): void {
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END} mode`,
+      );
+    }
+
+    if (!this.workingTag.attrs.has(attrName)) {
+      this.workingTag.attrs.set(attrName, attrValue);
+    }
+  }
 
   private isValidOpenTagFromHTMLTagDraft(workingTag: HTMLTagDraft): boolean {
+    // TODO: this is typically duplicate check as we tend to flush to text
+    // if tag name is invalid, but we will keep it here for now
     if (!supportedTagsSet.has(workingTag.name)) {
       return false;
     }
-    for (const requiredAttr of tagsToRequiredAttributes.get(workingTag.name) ?? []) {
+
+    for (
+      const requiredAttr of tagsToRequiredAttributes.get(workingTag.name) ?? []
+    ) {
       if (!workingTag.attrs.has(requiredAttr)) {
         return false;
       }
     }
+
+    if (workingTag.name === "span") {
+      const classValue = workingTag.attrs.get("class");
+      if (!classValue || !this.hasClass(classValue, spoilerClassName)) {
+        return false;
+      }
+    }
+
     return true;
   }
 
-  private addCharInAttributeInvalidMode(char: string): void {
-    if (!this.workingTag) {
-      throw new Error("No working tag in ATTR_INVALID mode");
+  private buildEntityFromClosedTag(
+    workingTag: HTMLTagDraft,
+  ): MessageEntity | undefined {
+    const length = this.text.length - workingTag.offset;
+    if (length < 0) {
+      return undefined;
     }
 
-    this.workingTag.originalText += char;
-    if (char === ">") {
-      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
-      if (isValidOpenTag) {
-        const tagStack = this.tagStacks.get(this.workingTag.name);
-        tagStack?.push(this.workingTag);
-      } else {
-        this.text += this.workingTag.originalText;
+    switch (workingTag.name) {
+      case "b":
+      case "strong":
+        return { type: "bold", offset: workingTag.offset, length };
+      case "i":
+      case "em":
+        return { type: "italic", offset: workingTag.offset, length };
+      case "u":
+      case "ins":
+        return { type: "underline", offset: workingTag.offset, length };
+      case "s":
+      case "strike":
+      case "del":
+        return { type: "strikethrough", offset: workingTag.offset, length };
+      case "span":
+      case "tg-spoiler":
+        return { type: "spoiler", offset: workingTag.offset, length };
+      case "a": {
+        const url = workingTag.attrs.get("href");
+        if (!url) {
+          return undefined;
+        }
+        return { type: "text_link", offset: workingTag.offset, length, url };
       }
-
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-      return;
-    }
-    if (char.trim() === "") {
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
-      return;
+      case "tg-emoji": {
+        const customEmojiId = workingTag.attrs.get("emoji-id");
+        if (!customEmojiId) {
+          return undefined;
+        }
+        return {
+          type: "custom_emoji",
+          offset: workingTag.offset,
+          length,
+          custom_emoji_id: customEmojiId,
+        };
+      }
+      case "code": {
+        const classValue = workingTag.attrs.get("class");
+        const language = classValue
+          ? this.extractLanguageFromCodeClass(classValue)
+          : undefined;
+        if (language) {
+          const preStack = this.tagStacks.get("pre");
+          const openPreTag = preStack && preStack.length > 0
+            ? preStack[preStack.length - 1]
+            : undefined;
+          if (openPreTag && openPreTag.offset <= workingTag.offset) {
+            openPreTag.attrs.set("language", language);
+            return undefined;
+          }
+        }
+        return { type: "code", offset: workingTag.offset, length };
+      }
+      case "pre": {
+        const language = workingTag.attrs.get("language");
+        if (language) {
+          return { type: "pre", offset: workingTag.offset, length, language };
+        }
+        return { type: "pre", offset: workingTag.offset, length };
+      }
+      case "blockquote":
+        if (workingTag.attrs.has("expandable")) {
+          return {
+            type: "expandable_blockquote",
+            offset: workingTag.offset,
+            length,
+          };
+        }
+        return { type: "blockquote", offset: workingTag.offset, length };
+      default:
+        return undefined;
     }
   }
 
   private addCharInAttributeNameMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
     if (!this.workingTag) {
-      throw new Error("No working tag in ATTR_NAME mode");
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_NAME} mode`,
+      );
     }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
 
+    // If `>`, then we are done with attribute names, and the opening tag has ended
     if (char === ">") {
-      const attrName = this.workingBufferText;
-      this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
-      if (supportedBareAttributesSet.has(attrName)) {
-        // If the attribute is seen, the new value is not applied
-        const attrValue = this.workingTag.attrs.get(attrName) ?? "true";
-        this.workingTag.attrs.set(attrName, attrValue);
-      }
-
-      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+      this.setBareAttribute(this.workingBufferText);
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(
+        this.workingTag,
+      );
       if (isValidOpenTag) {
-        const tagStack = this.tagStacks.get(this.workingTag.name);
-        tagStack?.push(this.workingTag);
+        this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
       } else {
-        this.text += this.workingTag.originalText;
+        this.text += this.fullTagOrEntityBufferText;
       }
-      this.fallbackBufferText = "";
+      this.resetWorkState();
+      return;
+    }
+
+    // If `=`, then we are done with attribute name, and
+    // must now decide if bare or quoted attr value
+    if (char === "=") {
+      this.workingAttributeName = this.workingBufferText;
       this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+      this.attributeValueQuoteChar = undefined;
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED;
       return;
     }
 
-    const isWhitespace = char.trim() === "";
-    if (isWhitespace && this.workingBufferText !== "") {
-      const attrName = this.workingBufferText;
-      this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
-      if (supportedBareAttributesSet.has(attrName)) {
-        const attrValue = this.workingTag.attrs.get(attrName) ?? "true";
-        this.workingTag.attrs.set(attrName, attrValue);
-      }
-      this.fallbackBufferText = "";
+    // If whitespace, we are done with the current attribute name, and
+    // must now decide if building next attr name, or attr value, or ending opening tag
+    if (isWhitespace(char)) {
+      this.workingAttributeName = this.workingBufferText;
       this.workingBufferText = "";
+      this.attributeValueQuoteChar = undefined;
+      this.mode = HTML_STREAM_PARSER_MODE
+        .DECISION_ATTR_VALUE_OR_ATTR_NAME_OR_OPEN_TAG_END;
       return;
     }
 
-    if (char === "=" && this.workingBufferText !== "") {
-      const attrName = this.workingBufferText;
-      this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      if (supportedValuedAttributesSet.has(attrName)) {
-        this.attributeNameBufferText = attrName;
-        this.mode = HTML_STREAM_PARSER_MODE.ATTR_VALUE;
-      } else {
-        this.mode = HTML_STREAM_PARSER_MODE.ATTR_INVALID;
-      }
-      return;
-    }
-
-    this.fallbackBufferText += char;
-    if (isWhitespace && this.workingBufferText === "") {
-      return;
-    }
-
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a substring of a supported attribute
-    // For this case, this doesn't mean we have a valid attribute yet
-    // when we encounter '=' or '>' or whitespace next, but we can early-exit when we know we won't have one
+    // If neither `>` nor `=` nor whitespace, we are still building attr name
+    // which is case-insensitive
     this.workingBufferText += char.toLowerCase();
-    if (!supportedAttributes.some((attr) => attr.startsWith(this.workingBufferText))) {
-      this.workingTag.originalText += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.ATTR_INVALID;
-      return;
-    }
   }
 
-  private addCharInAttributeValueMode(char: string): void {
+  private addCharInAttrValueBareMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
     if (!this.workingTag) {
-      throw new Error("No working tag in ATTR_VALUE mode");
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_VALUE_BARE} mode`,
+      );
     }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
 
-    const isWhitespace = char.trim() === "";
-    if (this.workingBufferText === "" && this.attributeValueQuoteChar === undefined) {
-      if (isWhitespace) {
-        this.fallbackBufferText += char;
-        return;
-      }
-      if (char === '"' || char === "'") {
-        this.attributeValueQuoteChar = char;
-        this.fallbackBufferText += char;
-        return;
-      }
-    }
+    // If `>` or whitespace in bare mode, we are done building attr value
+    const isWhitespaceChar = isWhitespace(char);
+    if (char === ">" || isWhitespaceChar) {
+      // Only respect the first seen attr value for the attr name
+      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ?? this.workingBufferText;
+      this.workingTag.attrs.set(this.workingAttributeName, attrValue);
 
-    if (char === this.attributeValueQuoteChar) {
-      const attrValue = this.workingBufferText;
-      const attrName = this.attributeNameBufferText;
-      this.workingTag.attrs.set(attrName, attrValue);
-      this.workingTag.originalText += `${this.fallbackBufferText}${char}`;
-      this.fallbackBufferText = "";
+      // We can clear attribute related buffers now that we have completed a attr name-value pair
+      this.workingAttributeName = "";
       this.workingBufferText = "";
-      this.attributeNameBufferText = "";
-      this.attributeValueQuoteChar = undefined;
-      this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
+    }
+
+    // If `>` in bare mode, we are now ending opening tag, so just add to stack of working tags if valid
+    if (char === ">") {
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+      if (isValidOpenTag) {
+        this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
+      } else {
+        this.text += this.fullTagOrEntityBufferText;
+      }
+      this.resetWorkState();
       return;
     }
 
-    this.fallbackBufferText += char;
+    // If whitespace in bare mode, we must decide if building next attr name or ending opening tag
+    if (isWhitespace(char)) {
+      this.mode = HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END;
+      return;
+    }
+
+    // If neither `>` nor whitespace, we leniently assume that it is part of bare attr value
+    this.workingBufferText += char;
+  }
+
+  private addCharInAttrValueQuotedMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_VALUE_QUOTED} mode`,
+      );
+    }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
+
+    // The only way to end a quoted attr value is to provide the matching quote char
+    // After completing attr value, we must decide if building next attr name or ending opening tag
+    if (char === this.attributeValueQuoteChar) {
+      // Only respect the first seen attr value for the attr name
+      const attrValue = this.workingTag.attrs.get(this.workingAttributeName) ?? this.workingBufferText;
+      this.workingTag.attrs.set(this.workingAttributeName, attrValue);
+
+      // We can clear attribute related buffers now that we have completed a attr name-value pair
+      this.workingAttributeName = "";
+      this.workingBufferText = "";
+
+      this.mode = HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END;
+      return;
+    }
+
+    // All other characters are assumed to be part of the attr value
     this.workingBufferText += char;
   }
 
   private addCharInCloseTagNameMode(char: string): void {
-    if (char === ">") {
-      const tagName = this.workingBufferText;
-      const isSupportedTag = supportedTagsSet.has(tagName);
-      if (isSupportedTag) {
-        const workingTag = this.tagStacks.get(tagName)?.pop();
-        if (!workingTag) {
-          // No matching opening tag, treat as text
-          this.text += `${this.fallbackBufferText}${char}`;
-        } else {
-          if (workingTag.name === "blockquote" && workingTag.attrs.has("expandable")) {
-              this.entities.push({
-              type: "expandable_blockquote",
-              offset: workingTag.offset,
-              length: this.text.length - workingTag.offset,
-            });
-          } else if (workingTag.name === "span" && workingTag.attrs.get("class") === "tg-spoiler") {
-            this.entities.push({
-              type: "spoiler",
-              offset: workingTag.offset,
-              length: this.text.length - workingTag.offset,
-            });
-          } else {
-            this.entities.push({
-              type: workingTag.name,
-              offset: workingTag.offset,
-              length: this.text.length - workingTag.offset,
-            });
-          }
-        }
-      } else {
-        this.text += `${this.fallbackBufferText}${char}`;
+    this.fullTagOrEntityBufferText += char;
+
+    const isWhitespaceChar = isWhitespace(char);
+
+    // If not whitespace or `>`, then it is part of tag name
+    // Flush early if it is not a prefix of any supported tag names
+    if (!isWhitespaceChar && char !== ">") {
+      this.workingBufferText += char.toLowerCase();
+      if (!isSupportedTagPrefix(this.workingBufferText)) {
+        this.text += this.fullTagOrEntityBufferText;
+        this.resetWorkState();
       }
-
-      // We always return to TEXT mode after closing tag
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
       return;
     }
 
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a substring of a supported tag
-    // For this case, this doesn't mean we have a valid tag yet
-    // when we encounter '>' next, but we can early-exit when we know we won't have one
-    this.fallbackBufferText += char;
-    this.workingBufferText += char.toLowerCase();
-    if (!supportedTags.some((tag) => tag.startsWith(this.workingBufferText))) {
-      this.text += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+    // Since it is whitespace or `>`, the tag name building is complete
+    // If not a valid complete tag name, flush early
+    const tagName = this.workingBufferText;
+    if (!supportedTagsSet.has(tagName)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
       return;
     }
+
+    this.workingTag = {
+      name: this.workingBufferText,
+      isClosing: true,
+      offset: this.text.length,
+      originalText: this.fullTagOrEntityBufferText,
+      attrs: new Map<string, string>(),
+    };
+    this.workingBufferText = "";
+
+    // We are done building closing tag name, and will skip chars until we see `>`
+    // to complete closing tag
+    if (isWhitespaceChar) {
+      this.mode = HTML_STREAM_PARSER_MODE.CLOSE_TAG_SEEK_END;
+      return;
+    }
+
+    // If `>`, then we are ending this opening tag, so just add to stack of working tags if valid
+    const lastMatchingOpenTag = this.tagStacks.get(this.workingTag.name)?.pop();
+    if (lastMatchingOpenTag) {
+      // TODO: build MessageEntity from opening tag and closing tag
+    } else {
+      this.text += this.fullTagOrEntityBufferText;
+    }
+    this.resetWorkState();
   }
 
-  private addCharInEntityStartMode(char: string): void {
-    if (char === "#" && this.workingBufferText === "") {
-      this.fallbackBufferText += char;
-      this.mode = HTML_STREAM_PARSER_MODE.ENTITY_NUMERIC_START;
+  private addCharInCloseTagSeekEndMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(`No working tag in ${HTML_STREAM_PARSER_MODE.ATTR_NAME} mode`);
+    }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
+
+    // If not `>`, nothing to do but to continue seeking
+    if (char !== '>') {
       return;
     }
+
+    // If `>`, then we are ending this opening tag, so just add to stack of working tags if valid
+    const lastMatchingOpenTag = this.tagStacks.get(this.workingTag.name)?.pop();
+    if (lastMatchingOpenTag) {
+      // TODO: build MessageEntity from opening tag and closing tag
+    } else {
+      this.text += this.fullTagOrEntityBufferText;
+    }
+    this.resetWorkState();
+  }
+
+  private addCharInOpenTagNameMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    const isWhitespaceChar = isWhitespace(char);
+
+    // If not whitespace or `>`, then it is part of tag name
+    // Flush early if it is not a prefix of any supported tag names
+    if (!isWhitespaceChar && char !== ">") {
+      this.workingBufferText += char.toLowerCase();
+      if (!isSupportedTagPrefix(this.workingBufferText)) {
+        this.text += this.fullTagOrEntityBufferText;
+        this.resetWorkState();
+      }
+      return;
+    }
+
+    // Since it is whitespace or `>`, the tag name building is complete
+    // If not a valid complete tag name, flush early
+    const tagName = this.workingBufferText;
+    if (!supportedTagsSet.has(tagName)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
+      return;
+    }
+
+    this.workingTag = {
+      name: this.workingBufferText,
+      isClosing: false,
+      offset: this.text.length,
+      originalText: this.fullTagOrEntityBufferText,
+      attrs: new Map<string, string>(),
+    };
+    this.workingBufferText = "";
+
+    // If whitespace, then it might either lead to a `>` to end this tag, or
+    // the start of an attribute name
+    if (isWhitespaceChar) {
+      this.mode = HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END;
+      return;
+    }
+
+    // If `>`, then we are ending this opening tag, so just add to stack of working tags if valid
+    const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(this.workingTag);
+    if (isValidOpenTag) {
+      this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
+    } else {
+      this.text += this.fullTagOrEntityBufferText;
+    }
+    this.resetWorkState();
+  }
+
+  private addCharInTextMode(char: string): void {
+    if (char === "<") {
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME;
+      return;
+    }
+
+    if (char === "&") {
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      this.mode = HTML_STREAM_PARSER_MODE
+        .DECISION_HTML_ENTITY_OR_NUMERIC_ENTITY_OR_HEX_ENTITY;
+      return;
+    }
+
+    this.text += char;
+  }
+
+  private addCharInHtmlEntityMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
     if (char === ";") {
       switch (this.workingBufferText) {
         case "amp":
@@ -302,157 +624,246 @@ export class HTMLStreamParser {
           this.text += '"';
           break;
         default:
-          this.text += `${this.fallbackBufferText}${char}`;
+          this.text += this.fullTagOrEntityBufferText;
       }
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+      this.resetWorkState();
       return;
     }
 
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a substring of a supported entity
-    // For this case, this doesn't mean we have a valid entity yet
-    // when we encounter ';' next, but we can early-exit when we know we won't have one
-    this.fallbackBufferText += char;
+    // Note: HTML entities are case sensitive
+    // i.e. &amp; is valid but &AMP; is not
     this.workingBufferText += char;
-    if (!supportedEntities.some((entity) => entity.startsWith(this.workingBufferText))) {
-      this.text += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+    if (!isSupportedEntityPrefix(this.workingBufferText)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
       return;
     }
   }
 
-  private addCharInEntityNumericStartMode(char: string): void {
-    if (char.toLowerCase() === "x" && this.workingBufferText === "") {
-      this.fallbackBufferText += char;
-      this.mode = HTML_STREAM_PARSER_MODE.ENTITY_HEX_START;
-      return;
-    }
-    if (char === ";" && this.workingBufferText !== "") {
+  private addCharInNumericEntityMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    if (char === ";") {
       const charCode = Number(this.workingBufferText);
-      this.text += String.fromCharCode(charCode);
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-      return;
-    }
-
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a valid charCode decimal string
-    this.fallbackBufferText += char;
-    this.workingBufferText += char;
-    const charCodeOrNaN = Number(this.workingBufferText);
-    if (isNaN(charCodeOrNaN) || charCodeOrNaN > maxCharCode) {
-      this.text += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-      return;
-    }
-  }
-
-  private addCharInEntityHexStartMode(char: string): void {
-    if (char === ";" && this.workingBufferText !== "") {
-      const charCode = Number(`0x${this.workingBufferText}`);
-      this.text += String.fromCharCode(charCode);
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-      return;
-    }
-
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a valid charCode hexadecimal string
-    this.fallbackBufferText += char;
-    this.workingBufferText += char;
-    const charCodeOrNaN = Number(`0x${this.workingBufferText}`);
-    if (isNaN(charCodeOrNaN) || charCodeOrNaN > maxCharCode) {
-      this.text += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-      return;
-    }
-  }
-
-  private addCharInOpenTagNameMode(char: string): void {
-    const isWhitespace = char.trim() === "";
-    if ((char === ">" || isWhitespace) && this.workingBufferText !== "") {
-      const tagName = this.workingBufferText;
-      const isSupportedTag = supportedTagsSet.has(tagName);
-      if (isSupportedTag) {
-        this.workingTag = {
-          name: tagName,
-          isClosing: false,
-          offset: this.text.length,
-          originalText: `${this.fallbackBufferText}${char}`,
-          attrs: new Map<string, string>(),
-        };
+      if (isValidCharCode(charCode)) {
+        this.text += String.fromCharCode(charCode);
       } else {
-        this.text += `${this.fallbackBufferText}${char}`;
+        this.text += this.fullTagOrEntityBufferText;
       }
-
-      // We return to TEXT mode if not supported tag or char is '>'
-      if (!isSupportedTag || char === ">") {
-        this.fallbackBufferText = "";
-        this.workingBufferText = "";
-        this.mode = HTML_STREAM_PARSER_MODE.TEXT;
-        return;
-      }
-
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
+      this.resetWorkState();
+      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
       return;
     }
 
-    // We maintain an invariant for this state where workingBufferText
-    // is either empty or is a substring of a supported tag
-    // For this case, this doesn't mean we have a valid tag yet
-    // when we encounter '>' or whitespace next, but we can early-exit when we know we won't have one
-    this.fallbackBufferText += char;
-    this.workingBufferText += char.toLowerCase();
-    if (!supportedTags.some((tag) => tag.startsWith(this.workingBufferText))) {
-      this.text += this.fallbackBufferText;
-      this.fallbackBufferText = "";
-      this.workingBufferText = "";
-      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
+    // Decimal numeric entities are case-insensitive, but
+    // this means nothing for decimal digits
+    this.workingBufferText = char;
+    if (!isDecimalDigit(char)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
       return;
     }
   }
 
-  private addCharInTagOpenMode(char: string): void {
-    const isWhitespace = char.trim() === "";
-    const isClosingTagChar = char === "/";
+  private addCharInHexEntityMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
 
-    this.fallbackBufferText += char;
-    if (isWhitespace) {
+    if (char === ";") {
+      const charCode = Number(`0x${this.workingBufferText}`);
+      if (isValidCharCode(charCode)) {
+        this.text += String.fromCharCode(charCode);
+      } else {
+        this.text += this.fullTagOrEntityBufferText;
+      }
+      this.resetWorkState();
+      this.mode = HTML_STREAM_PARSER_MODE.TEXT;
       return;
     }
-    if (isClosingTagChar) {
+
+    // Hexadecimal entities are case-insensitive, so we standardise
+    // working buffer to only contain lowercased hex characters
+    this.workingBufferText = char.toLowerCase();
+    if (!isHexDigit(char)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
+      return;
+    }
+  }
+
+  private addCharInDecisionOpenTagNameOrCloseTagNameMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    if (char === "/") {
       this.mode = HTML_STREAM_PARSER_MODE.CLOSE_TAG_NAME;
       return;
     }
 
-    // If neither whitespace nor closing tag char, then we
-    // assume it is an open tag and pass char to open tag working buffer
-    this.workingBufferText += char.toLowerCase();
+    // If first character is not `/`, then we are adding tag names
+    // which are case-insensitive
+    this.workingBufferText = char.toLowerCase();
+    if (!isSupportedTagPrefix(this.workingBufferText)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
+      return;
+    }
+
     this.mode = HTML_STREAM_PARSER_MODE.OPEN_TAG_NAME;
   }
 
-  private addCharInTextMode(char: string): void {
-    if (char === "<") {
-      this.fallbackBufferText = char;
-      this.mode = HTML_STREAM_PARSER_MODE.TAG_OPEN;
-    } else if (char === "&") {
-      this.fallbackBufferText = char;
-      this.mode = HTML_STREAM_PARSER_MODE.ENTITY_START;
-    } else {
-      this.text += char;
+  private addCharInDecisionAttrNameOrOpenTagEndMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END} mode`,
+      );
     }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
+
+    // If whitespace, no decision has been made yet, just continue
+    if (isWhitespace(char)) {
+      return;
+    }
+
+    // If `>`, then we have reach the end of this opening tag, so
+    // just add to stack of working tags if valid
+    if (char === ">") {
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(
+        this.workingTag,
+      );
+      if (isValidOpenTag) {
+        this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
+      } else {
+        this.text += this.fullTagOrEntityBufferText;
+      }
+      this.resetWorkState();
+      return;
+    }
+
+    // Else, we are starting a new attribute name
+    this.workingBufferText = char.toLowerCase();
+    this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
+  }
+
+  private addCharInDecisionAttrValueOrAttrNameOrOpenTagEndMode(
+    char: string,
+  ): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END} mode`,
+      );
+    }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
+
+    // If whitespace, no decision has been made yet, just continue
+    if (isWhitespace(char)) {
+      return;
+    }
+
+    // If `=`, then we want to start building attr value, and
+    // must decide if bare or quoted
+    if (char === '=') {
+      this.mode = HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED;
+      return;
+    }
+
+    // If `>`, then we have reach the end of this opening tag, so
+    // we use attr name as bare attr, and
+    // just add to stack of working tags if valid
+    if (char === ">") {
+      this.setBareAttribute(this.workingAttributeName);
+
+      const isValidOpenTag = this.isValidOpenTagFromHTMLTagDraft(
+        this.workingTag,
+      );
+      if (isValidOpenTag) {
+        this.tagStacks.get(this.workingTag.name)?.push(this.workingTag);
+      } else {
+        this.text += this.fullTagOrEntityBufferText;
+      }
+      this.resetWorkState();
+      return;
+    }
+
+    // Else, we are starting a new attribute name
+    this.workingBufferText = char.toLowerCase();
+    this.mode = HTML_STREAM_PARSER_MODE.ATTR_NAME;
+  }
+
+  private addCharInDecisionAttrValueBareOrAttrValueQuotedMode(
+    char: string,
+  ): void {
+    this.fullTagOrEntityBufferText += char;
+
+    // This case should never hold true unless there is a logic bug
+    if (!this.workingTag) {
+      throw new Error(
+        `No working tag in ${HTML_STREAM_PARSER_MODE.DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED} mode`,
+      );
+    }
+    this.workingTag.originalText = this.fullTagOrEntityBufferText;
+
+    // If whitespace, no decision made yet
+    if (isWhitespace(char)) {
+      return;
+    }
+
+    // If char is `'` or `"`, then we are building a quoted attr value
+    if (char === `'` || char === `"`) {
+      this.attributeValueQuoteChar = char;
+      this.mode = HTML_STREAM_PARSER_MODE.ATTR_VALUE_QUOTED;
+      return;
+    }
+
+    // For any other characters, we leniently assume it is a valid bare attr value
+    this.workingBufferText = char;
+    this.mode = HTML_STREAM_PARSER_MODE.ATTR_VALUE_BARE;
+  }
+
+  private addCharInDecisionHtmlEntityOrNumericEntityOrHexEntityMode(
+    char: string,
+  ): void {
+    this.fullTagOrEntityBufferText += char;
+
+    if (char === "#") {
+      this.mode = HTML_STREAM_PARSER_MODE.DECISION_NUMERIC_ENTITY_OR_HEX_ENTITY;
+      return;
+    }
+
+    // If first character is not `#`, then none of the numerical entities
+    // Note: non-numeric entities are case-sensitive
+    this.workingBufferText += char;
+    if (!isSupportedEntityPrefix(this.workingBufferText)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
+      return;
+    }
+
+    this.mode = HTML_STREAM_PARSER_MODE.HTML_ENTITY;
+  }
+
+  private addCharInDecisionNumericEntityOrHexEntityMode(char: string): void {
+    this.fullTagOrEntityBufferText += char;
+
+    if (char === "x") {
+      this.mode = HTML_STREAM_PARSER_MODE.HEX_ENTITY;
+      return;
+    }
+
+    // If first character is not `x`, then is regular decimal numeric
+    // entity, which is case-insensitive but irrelevant for decimal digits
+    this.workingBufferText += char;
+    if (!isDecimalDigit(char)) {
+      this.text += this.fullTagOrEntityBufferText;
+      this.resetWorkState();
+      return;
+    }
+
+    this.mode = HTML_STREAM_PARSER_MODE.NUMERIC_ENTITY;
   }
 
   /**
@@ -463,35 +874,56 @@ export class HTMLStreamParser {
   add(text: string): void {
     for (const char of text) {
       switch (this.mode) {
-        case HTML_STREAM_PARSER_MODE.ATTR_NAME:
-          this.addCharInAttributeNameMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.ATTR_VALUE:
-          this.addCharInAttributeValueMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.ATTR_INVALID:
-          this.addCharInAttributeInvalidMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.CLOSE_TAG_NAME:
-          this.addCharInCloseTagNameMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.ENTITY_START:
-          this.addCharInEntityStartMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.ENTITY_NUMERIC_START:
-          this.addCharInEntityNumericStartMode(char);
-          break;
-        case HTML_STREAM_PARSER_MODE.ENTITY_HEX_START:
-          this.addCharInEntityHexStartMode(char);
+        case HTML_STREAM_PARSER_MODE.TEXT:
+          this.addCharInTextMode(char);
           break;
         case HTML_STREAM_PARSER_MODE.OPEN_TAG_NAME:
           this.addCharInOpenTagNameMode(char);
           break;
-        case HTML_STREAM_PARSER_MODE.TAG_OPEN:
-          this.addCharInTagOpenMode(char);
+        case HTML_STREAM_PARSER_MODE.CLOSE_TAG_NAME:
+          this.addCharInCloseTagNameMode(char);
           break;
-        case HTML_STREAM_PARSER_MODE.TEXT:
-          this.addCharInTextMode(char);
+        case HTML_STREAM_PARSER_MODE.CLOSE_TAG_SEEK_END:
+          this.addCharInCloseTagSeekEndMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.ATTR_NAME:
+          this.addCharInAttributeNameMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.ATTR_VALUE_BARE:
+          this.addCharInAttrValueBareMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.ATTR_VALUE_QUOTED:
+          this.addCharInAttrValueQuotedMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.HTML_ENTITY:
+          this.addCharInHtmlEntityMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.NUMERIC_ENTITY:
+          this.addCharInNumericEntityMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.HEX_ENTITY:
+          this.addCharInHexEntityMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME:
+          this.addCharInDecisionOpenTagNameOrCloseTagNameMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.DECISION_ATTR_NAME_OR_OPEN_TAG_END:
+          this.addCharInDecisionAttrNameOrOpenTagEndMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE
+          .DECISION_ATTR_VALUE_OR_ATTR_NAME_OR_OPEN_TAG_END:
+          this.addCharInDecisionAttrValueOrAttrNameOrOpenTagEndMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE
+          .DECISION_ATTR_VALUE_BARE_OR_ATTR_VALUE_QUOTED:
+          this.addCharInDecisionAttrValueBareOrAttrValueQuotedMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE
+          .DECISION_HTML_ENTITY_OR_NUMERIC_ENTITY_OR_HEX_ENTITY:
+          this.addCharInDecisionHtmlEntityOrNumericEntityOrHexEntityMode(char);
+          break;
+        case HTML_STREAM_PARSER_MODE.DECISION_NUMERIC_ENTITY_OR_HEX_ENTITY:
+          this.addCharInDecisionNumericEntityOrHexEntityMode(char);
           break;
         default:
           throw new Error(`Unhandled mode: ${this.mode}`);
@@ -500,13 +932,14 @@ export class HTMLStreamParser {
   }
 }
 
-const p = new HTMLStreamParser();
-p.add('<span class="tg-spoiler">This is a spoiler tag &amp; test.');
+const s = new HTMLStreamParser();
+s.add('Sometimes you <b >might find that 5 < 10 but 16 > 15!');
 
-//@ts-expect-error
-console.log(p.text);
-//@ts-expect-error
-console.log(p.tagStacks);
-//@ts-expect-error
-console.log(p.entities);
+//@ts-expect-error test
+console.log(s.text);
 
+//@ts-expect-error test
+console.log(s.workingTag);
+
+//@ts-expect-error test
+console.log(s.tagStacks);
