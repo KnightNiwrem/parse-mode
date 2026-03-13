@@ -109,6 +109,11 @@ export function emoji(customEmojiId: string) {
   return buildFormatter("custom_emoji")({ custom_emoji_id: customEmojiId });
 }
 
+/**
+ * `date_time` entity tag. Incompatible with `code` and `pre`.
+ * @param unixTime The Unix timestamp required by Telegram.
+ * @param dateTimeFormat The optional Telegram `date_time` formatting string.
+ */
 export function time(
   unixTime: number,
   dateTimeFormat?: MessageEntity.DateTimeMessageEntity["date_time_format"],
