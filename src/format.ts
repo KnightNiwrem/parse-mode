@@ -16,6 +16,7 @@ import {
   s,
   spoiler,
   strikethrough,
+  time,
   u,
   underline,
 } from "./entity-tag.ts";
@@ -415,6 +416,21 @@ export class FormattedString
   }
 
   /**
+   * Creates a date_time formatted string
+   * @param text The text content to format as a date_time entity
+   * @param unixTime The Unix timestamp required by Telegram
+   * @param dateTimeFormat The optional Telegram date_time formatting string
+   * @returns A new FormattedString with date_time formatting applied
+   */
+  static time(
+    text: Stringable,
+    unixTime: number,
+    dateTimeFormat?: MessageEntity.DateTimeMessageEntity["date_time_format"],
+  ) {
+    return fmt`${time(unixTime, dateTimeFormat)}${text}${time}`;
+  }
+
+  /**
    * Creates a message link formatted string
    * @param text The text content to display for the link
    * @param chatId The chat ID containing the message
@@ -719,6 +735,21 @@ export class FormattedString
    */
   emoji(text: Stringable, customEmojiId: string) {
     return fmt`${this}${FormattedString.emoji(text, customEmojiId)}`;
+  }
+
+  /**
+   * Combines this FormattedString with a date_time formatted string
+   * @param text The text content to format as a date_time entity and append
+   * @param unixTime The Unix timestamp required by Telegram
+   * @param dateTimeFormat The optional Telegram date_time formatting string
+   * @returns A new FormattedString combining this instance with date_time formatting
+   */
+  time(
+    text: Stringable,
+    unixTime: number,
+    dateTimeFormat?: MessageEntity.DateTimeMessageEntity["date_time_format"],
+  ) {
+    return fmt`${this}${FormattedString.time(text, unixTime, dateTimeFormat)}`;
   }
 
   /**

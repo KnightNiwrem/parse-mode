@@ -5,15 +5,13 @@ import type { MessageEntity } from "./deps.deno.ts";
  */
 export type EntityTag = Omit<MessageEntity, "offset" | "length">;
 
-function buildFormatter<T extends Array<unknown> = never>(
-  type: MessageEntity["type"],
-  ...formatArgKeys: T
-): (...formatArgs: T) => EntityTag {
-  return (...formatArgs) => {
-    const formatArgObj = Object.fromEntries(
-      formatArgKeys.map((formatArgKey, i) => [formatArgKey, formatArgs[i]]),
-    );
-    return { type, ...formatArgObj };
+function buildFormatter<T extends MessageEntity["type"]>(
+  type: T,
+): (
+  formatOpts?: Omit<MessageEntity & { type: T }, "type" | "offset" | "length">,
+) => EntityTag {
+  return (formatOpts) => {
+    return { type, ...formatOpts };
   };
 }
 
@@ -72,14 +70,14 @@ export function underline() {
  * @param url The URL to link to.
  */
 export function a(url: string) {
-  return buildFormatter<[url: string]>("text_link", "url")(url);
+  return buildFormatter("text_link")({ url });
 }
 /**
  * `link` entity tag. Incompatible with `code` and `pre`.
  * @param url The URL to link to.
  */
 export function link(url: string) {
-  return buildFormatter<[url: string]>("text_link", "url")(url);
+  return buildFormatter("text_link")({ url });
 }
 
 /**
@@ -93,9 +91,7 @@ export function code() {
  * @param language The language of the code block.
  */
 export function pre(language?: string) {
-  return buildFormatter<[language: string | undefined]>("pre", "language")(
-    language,
-  );
+  return buildFormatter("pre")({ language });
 }
 
 /**
@@ -110,10 +106,22 @@ export function spoiler() {
  * @param customEmojiId The custom emoji ID.
  */
 export function emoji(customEmojiId: string) {
-  return buildFormatter<[customEmojiId: string]>(
-    "custom_emoji",
-    "custom_emoji_id",
-  )(customEmojiId);
+  return buildFormatter("custom_emoji")({ custom_emoji_id: customEmojiId });
+}
+
+/**
+ * `date_time` entity tag. Incompatible with `code` and `pre`.
+ * @param unixTime The Unix timestamp required by Telegram.
+ * @param dateTimeFormat The optional Telegram `date_time` formatting string.
+ */
+export function time(
+  unixTime: number,
+  dateTimeFormat?: MessageEntity.DateTimeMessageEntity["date_time_format"],
+) {
+  return buildFormatter("date_time")({
+    unix_time: unixTime,
+    date_time_format: dateTimeFormat ?? "",
+  });
 }
 
 /**
