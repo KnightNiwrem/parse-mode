@@ -63,6 +63,11 @@ export function isEntitySimilar(
     return entity1.custom_emoji_id === entity2.custom_emoji_id;
   }
 
+  if (entity1.type === "date_time" && entity2.type === "date_time") {
+    return entity1.unix_time === entity2.unix_time &&
+      (entity1.date_time_format ?? "") === (entity2.date_time_format ?? "");
+  }
+
   if (entity1.type === "text_mention" && entity2.type === "text_mention") {
     return isUserSimilar(entity1.user, entity2.user);
   }
@@ -171,6 +176,10 @@ export function consolidateEntities(
       key += `|${sortedEntity.language || ""}`;
     } else if (sortedEntity.type === "custom_emoji") {
       key += `|${sortedEntity.custom_emoji_id}`;
+    } else if (sortedEntity.type === "date_time") {
+      key += `|${sortedEntity.unix_time}|${
+        sortedEntity.date_time_format ?? ""
+      }`;
     } else if (sortedEntity.type === "text_mention") {
       // Use user.id as key, nothing we can do about different User object with same id (e.g. username changes over time)
       key += `|${sortedEntity.user.id}`;
@@ -254,6 +263,13 @@ function compareEntities(a: MessageEntity, b: MessageEntity): number {
 
   if (a.type === "custom_emoji" && b.type === "custom_emoji") {
     return a.custom_emoji_id.localeCompare(b.custom_emoji_id);
+  }
+
+  if (a.type === "date_time" && b.type === "date_time") {
+    if (a.unix_time !== b.unix_time) {
+      return a.unix_time - b.unix_time;
+    }
+    return (a.date_time_format ?? "").localeCompare(b.date_time_format ?? "");
   }
 
   if (a.type === "text_mention" && b.type === "text_mention") {
