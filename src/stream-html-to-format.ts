@@ -716,8 +716,9 @@ export class HTMLStreamParser {
     // which are case-insensitive
     this.workingBufferText = char.toLowerCase();
     if (!isSupportedTagPrefix(this.workingBufferText)) {
-      this.text += this.fullTagOrEntityBufferText;
+      this.text += "<";
       this.resetWorkState();
+      this.addCharInTextMode(char);
       return;
     }
 
