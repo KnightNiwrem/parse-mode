@@ -705,6 +705,15 @@ export class HTMLStreamParser {
   }
 
   private addCharInDecisionOpenTagNameOrCloseTagNameMode(char: string): void {
+    // If we encounter another `<`, the previous `<` was plain text.
+    // Flush it and restart tag detection with this new `<`.
+    if (char === "<") {
+      this.text += this.fullTagOrEntityBufferText;
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      return;
+    }
+
     this.fullTagOrEntityBufferText += char;
 
     if (char === "/") {
