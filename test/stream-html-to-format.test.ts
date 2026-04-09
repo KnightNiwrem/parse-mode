@@ -131,6 +131,20 @@ describe("HTMLStreamParser", () => {
     assertEquals(formatted.rawEntities[0]?.length, "spoiler & text".length);
   });
 
+  it("evaluates contiguous opening brackets as plain text", () => {
+    const parser = new HTMLStreamParser();
+    parser.add("<<b");
+    parser.add(">bold</b>");
+
+    const formatted = parser.toFormattedString();
+
+    assertEquals(formatted.rawText, "<bold");
+    assertEquals(formatted.rawEntities.length, 1);
+    assertEquals(formatted.rawEntities[0]?.type, "bold");
+    assertEquals(formatted.rawEntities[0]?.offset, 1);
+    assertEquals(formatted.rawEntities[0]?.length, 4);
+  });
+
   it("toFormattedString is idempotent for unchanged parser state", () => {
     const parser = new HTMLStreamParser();
     parser.add("<i>ok</i>");
