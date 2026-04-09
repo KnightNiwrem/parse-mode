@@ -467,6 +467,17 @@ export class HTMLStreamParser {
   }
 
   private addCharInCloseTagNameMode(char: string): void {
+    // If we encounter another `<`, the current partial close tag was plain text.
+    // Flush it and restart tag detection with this new `<`.
+    if (char === "<") {
+      this.text += this.fullTagOrEntityBufferText;
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME;
+      return;
+    }
+
     this.fullTagOrEntityBufferText += char;
 
     const isWhitespaceChar = isWhitespace(char);
@@ -521,6 +532,35 @@ export class HTMLStreamParser {
   }
 
   private addCharInCloseTagSeekEndMode(char: string): void {
+    // If we encounter `<` while seeking `>` for close tag, the close tag
+    // is complete (browser behavior). Finalize it and restart tag detection.
+    if (char === "<") {
+      if (!this.workingTag) {
+        throw new Error(
+          `No working tag in ${HTML_STREAM_PARSER_MODE.CLOSE_TAG_SEEK_END} mode`,
+        );
+      }
+
+      const lastMatchingOpenTag = this.tagStacks.get(this.workingTag.name)
+        ?.pop();
+      if (lastMatchingOpenTag) {
+        const entity = this.buildEntityFromOpenTag(lastMatchingOpenTag);
+        if (entity) {
+          this.entities.push(entity);
+        }
+      } else {
+        this.text += this.fullTagOrEntityBufferText;
+      }
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      this.workingAttributeName = "";
+      this.attributeValueQuoteChar = undefined;
+      this.workingTag = undefined;
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME;
+      return;
+    }
+
     this.fullTagOrEntityBufferText += char;
 
     // This case should never hold true unless there is a logic bug
@@ -550,6 +590,17 @@ export class HTMLStreamParser {
   }
 
   private addCharInOpenTagNameMode(char: string): void {
+    // If we encounter another `<`, the current partial open tag was plain text.
+    // Flush it and restart tag detection with this new `<`.
+    if (char === "<") {
+      this.text += this.fullTagOrEntityBufferText;
+      this.fullTagOrEntityBufferText = char;
+      this.workingBufferText = "";
+      this.mode =
+        HTML_STREAM_PARSER_MODE.DECISION_OPEN_TAG_NAME_OR_CLOSE_TAG_NAME;
+      return;
+    }
+
     this.fullTagOrEntityBufferText += char;
 
     const isWhitespaceChar = isWhitespace(char);
