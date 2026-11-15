@@ -540,8 +540,8 @@ type EntityTemplate = DistributiveOmit<MessageEntity, "offset" | "length">;
 
 /** The meaning of an accepted start tag. */
 interface StartTagMeaning {
-  /** The entity to create on close, or undefined to create none. */
-  entity: EntityTemplate | undefined;
+  /** The entity to create on close. */
+  entity: EntityTemplate;
   /** For `code`: the language to hand to a `pre` over the same range. */
   language?: string;
 }
@@ -595,9 +595,9 @@ function interpretStartTag(
     case "tg-spoiler":
       return { entity: { type: "spoiler" } };
     case "a": {
-      // An empty href is accepted but creates no entity
+      // A bare or empty href is no better than a missing one
       const url = attrs.get("href");
-      return { entity: url ? { type: "text_link", url } : undefined };
+      return url ? { entity: { type: "text_link", url } } : undefined;
     }
     case "tg-emoji": {
       const id = attrs.get("emoji-id") ?? "";
@@ -692,16 +692,14 @@ class EntityBuilder {
     }
 
     const [element] = this.open.splice(index, 1);
-    const length = this.text.length - element.offset;
-    if (length === 0 || element.entity === undefined) return;
-
-    const entity = {
-      ...element.entity,
-      offset: element.offset,
-      length,
-    } as MessageEntity;
-    this.addEntity({
-      entity,
+    // Kept even when it covers no text yet: the ended snapshot may put an
+    // unclosed start tag back inside it. Snapshots drop what stays empty.
+    this.finished.push({
+      entity: {
+        ...element.entity,
+        offset: element.offset,
+        length: this.text.length - element.offset,
+      } as MessageEntity,
       startSeq: element.seq,
       endSeq: seq,
       language: element.language,
@@ -709,40 +707,45 @@ class EntityBuilder {
   }
 
   /**
-   * Adds a finished entity. Like Telegram, a `pre` and a `code` with a
-   * language over exactly the same range become one `pre` with that
-   * language, in either nesting order. Otherwise `code` has no language.
+   * Turns finished entities, in the order their end tags arrived, into the
+   * entities of a snapshot. Entities covering no text are dropped. Like
+   * Telegram, a `pre` and a `code` with a language that follow each other
+   * over exactly the same range become one `pre` with that language, in
+   * either nesting order. Otherwise `code` has no language.
    */
-  private addEntity(next: FinishedEntity): void {
-    const last = this.finished[this.finished.length - 1];
-    if (
-      last !== undefined &&
-      last.entity.offset === next.entity.offset &&
-      last.entity.length === next.entity.length
-    ) {
-      const [pre, code] = next.entity.type === "pre"
-        ? [next.entity, last]
-        : [last.entity, next];
+  private collect(finished: FinishedEntity[]): MessageEntity[] {
+    const kept: FinishedEntity[] = [];
+    for (const next of finished) {
+      if (next.entity.length === 0) continue;
+      const last = kept[kept.length - 1];
       if (
-        pre.type === "pre" && pre.language === undefined &&
-        code.entity.type === "code" && code.language !== undefined
+        last !== undefined &&
+        last.entity.offset === next.entity.offset &&
+        last.entity.length === next.entity.length
       ) {
-        // The merged entity spans both elements in source order
-        this.finished[this.finished.length - 1] = {
-          entity: { ...pre, language: code.language },
-          startSeq: Math.min(last.startSeq, next.startSeq),
-          endSeq: Math.max(last.endSeq, next.endSeq),
-        };
-        return;
+        const [pre, code] = next.entity.type === "pre"
+          ? [next.entity, last]
+          : [last.entity, next];
+        if (
+          pre.type === "pre" && pre.language === undefined &&
+          code.entity.type === "code" && code.language !== undefined
+        ) {
+          kept[kept.length - 1] = {
+            ...next,
+            entity: { ...pre, language: code.language },
+            language: undefined,
+          };
+          continue;
+        }
       }
+      kept.push(next);
     }
-    this.finished.push(next);
+    return sortEntities(kept.map((f) => copyMessageEntity(f.entity)));
   }
 
   /** The intermediate snapshot: undecided input and unclosed tags left out. */
   snapshot(): FormattedString {
-    const entities = this.finished.map((f) => copyMessageEntity(f.entity));
-    return new FormattedString(this.text, sortEntities(entities));
+    return new FormattedString(this.text, this.collect(this.finished));
   }
 
   /**
@@ -758,14 +761,14 @@ class EntityBuilder {
     }
     text += this.text.slice(copied) + pending;
 
-    const entities = this.finished.map(({ entity, startSeq, endSeq }) => {
-      const end = entity.offset + entity.length;
-      const offset = entity.offset +
-        this.restoredBefore(entity.offset, startSeq);
-      const length = end + this.restoredBefore(end, endSeq) - offset;
-      return { ...copyMessageEntity(entity), offset, length };
+    const finished = this.finished.map((f) => {
+      const end = f.entity.offset + f.entity.length;
+      const offset = f.entity.offset +
+        this.restoredBefore(f.entity.offset, f.startSeq);
+      const length = end + this.restoredBefore(end, f.endSeq) - offset;
+      return { ...f, entity: { ...f.entity, offset, length } };
     });
-    return new FormattedString(text, sortEntities(entities));
+    return new FormattedString(text, this.collect(finished));
   }
 
   /**

@@ -878,13 +878,47 @@ describe("HTMLStreamParser decisions", () => {
   it("19: keeps <a> without href as literal text", () => {
     expectLiteral("<a>x</a>");
     expectLiteral('<a title="t">x</a>');
-    // An empty href is accepted but creates no entity, as before
-    expectParse('<a href="">x</a>', { text: "x", entities: [] });
-    expectParse("<a href>x</a>", { text: "x", entities: [] });
+    // A bare or empty href is treated like a missing one
+    expectLiteral('<a href="">x</a>');
+    expectLiteral("<a href=''>x</a>");
+    expectLiteral("<a href>x</a>");
+    expectLiteral("<a href >x</a>");
+    // The first href wins, so a later non-empty one does not rescue the tag
+    expectLiteral('<a href href="1">x</a>');
   });
 });
 
 describe("HTMLStreamParser snapshots", () => {
+  it("ended: a closed element grows over a restored tag even when it covered no text", () => {
+    // The bold is empty mid-stream, but the restored <i> lies inside it
+    expectParse(
+      "<b><i></b>",
+      { text: "", entities: [] },
+      { text: "<i>", entities: [{ type: "bold", offset: 0, length: 3 }] },
+    );
+    expectParse(
+      "<b><i></b>x",
+      { text: "x", entities: [] },
+      { text: "<i>x", entities: [{ type: "bold", offset: 0, length: 3 }] },
+    );
+    // The restored <i> stands before the bold, which stays empty
+    expectParse(
+      "<i><b></b>",
+      { text: "", entities: [] },
+      { text: "<i>", entities: [] },
+    );
+  });
+
+  it("an empty element between pre and code does not block the language merge", () => {
+    expectParse(
+      '<pre><code class="language-x">a</code><b></b></pre>',
+      {
+        text: "a",
+        entities: [{ type: "pre", offset: 0, length: 1, language: "x" }],
+      },
+    );
+  });
+
   it("are idempotent and do not mutate the parser", () => {
     const parser = new HTMLStreamParser();
     parser.add("<i>a</i><b>b&am");
