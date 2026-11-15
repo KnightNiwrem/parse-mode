@@ -909,6 +909,24 @@ describe("HTMLStreamParser snapshots", () => {
     );
   });
 
+  it("ended: pre and code merge only when their ended ranges match", () => {
+    // Mid-stream both cover "a"; once <b> is restored, pre also covers it
+    expectParse(
+      '<pre><b><code class="language-x">a</code></pre>',
+      {
+        text: "a",
+        entities: [{ type: "pre", offset: 0, length: 1, language: "x" }],
+      },
+      {
+        text: "<b>a",
+        entities: [
+          { type: "pre", offset: 0, length: 4 },
+          { type: "code", offset: 3, length: 1 },
+        ],
+      },
+    );
+  });
+
   it("an empty element between pre and code does not block the language merge", () => {
     expectParse(
       '<pre><code class="language-x">a</code><b></b></pre>',
