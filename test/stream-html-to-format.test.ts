@@ -909,6 +909,59 @@ describe("HTMLStreamParser snapshots", () => {
     );
   });
 
+  it("ended: an empty element stays empty once nothing restored can be inside it", () => {
+    // The <i> inside the bold closes before it can be restored
+    expectParse("<b><i></b></i>", { text: "", entities: [] });
+    expectParse("<b><i></b></i>x", { text: "x", entities: [] });
+    // Tags opened after the empty element closed never land inside it
+    expectParse(
+      "<b></b><i>x",
+      { text: "x", entities: [] },
+      { text: "<i>x", entities: [] },
+    );
+  });
+
+  it("an end tag closes the nearest open element with its name", () => {
+    expectParse("<b><i>x</b>y</i>", {
+      text: "xy",
+      entities: [
+        { type: "bold", offset: 0, length: 1 },
+        { type: "italic", offset: 0, length: 2 },
+      ],
+    });
+    expectParse(
+      "<b><b>x</b>y",
+      { text: "xy", entities: [{ type: "bold", offset: 0, length: 1 }] },
+      { text: "<b>xy", entities: [{ type: "bold", offset: 3, length: 1 }] },
+    );
+  });
+
+  it("ended: restores open tags of different names in source order", () => {
+    expectParse(
+      "<b>a<i>b<s>c<u>d</s><b>e",
+      {
+        text: "abcde",
+        entities: [{ type: "strikethrough", offset: 2, length: 2 }],
+      },
+      {
+        text: "<b>a<i>bc<u>d<b>e",
+        entities: [{ type: "strikethrough", offset: 8, length: 5 }],
+      },
+    );
+    // At one offset, source order decides across names too
+    expectParse(
+      "<b><s><i>x</s>",
+      {
+        text: "x",
+        entities: [{ type: "strikethrough", offset: 0, length: 1 }],
+      },
+      {
+        text: "<b><i>x",
+        entities: [{ type: "strikethrough", offset: 3, length: 4 }],
+      },
+    );
+  });
+
   it("ended: pre and code merge only when their ended ranges match", () => {
     // Mid-stream both cover "a"; once <b> is restored, pre also covers it
     expectParse(

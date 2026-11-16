@@ -649,8 +649,11 @@ function interpretTimeTag(
 
 class EntityBuilder {
   private text = "";
-  /** Open elements in source order; this is also text offset order. */
-  private open: OpenElement[] = [];
+  /**
+   * One stack of open elements per tag name, so an end tag finds the nearest
+   * open element with its name on top. Each stack is in source order.
+   */
+  private open = new Map<string, OpenElement[]>();
   private finished: FinishedEntity[] = [];
   /** Source order of tag tokens, used to order equal text offsets. */
   private seq = 0;
@@ -678,32 +681,44 @@ class EntityBuilder {
       this.text += raw;
       return;
     }
-    this.open.push({ ...meaning, name, offset: this.text.length, raw, seq });
+    let stack = this.open.get(name);
+    if (stack === undefined) this.open.set(name, stack = []);
+    stack.push({ ...meaning, name, offset: this.text.length, raw, seq });
   }
 
   /** Closes the nearest open element with the same name. */
   private endTag(name: string, raw: string): void {
     const seq = this.seq++;
-    let index = this.open.length - 1;
-    while (index >= 0 && this.open[index].name !== name) index--;
-    if (index < 0) {
+    const element = this.open.get(name)?.pop();
+    if (element === undefined) {
       this.text += raw;
       return;
     }
 
-    const [element] = this.open.splice(index, 1);
-    // Kept even when it covers no text yet: the ended snapshot may put an
-    // unclosed start tag back inside it. Snapshots drop what stays empty.
+    const length = this.text.length - element.offset;
+    // An empty element can only gain text in the ended snapshot, from a start
+    // tag put back inside it: one that came after its own and is still open.
+    // Snapshots drop what stays empty.
+    if (length === 0 && !this.openSince(element.seq)) return;
     this.finished.push({
       entity: {
         ...element.entity,
         offset: element.offset,
-        length: this.text.length - element.offset,
+        length,
       } as MessageEntity,
       startSeq: element.seq,
       endSeq: seq,
       language: element.language,
     });
+  }
+
+  /** Whether a start tag after source order `seq` is still open. */
+  private openSince(seq: number): boolean {
+    for (const stack of this.open.values()) {
+      // The top of a stack is its latest start tag
+      if (stack.length > 0 && stack[stack.length - 1].seq > seq) return true;
+    }
+    return false;
   }
 
   /**
@@ -753,41 +768,58 @@ class EntityBuilder {
    * back as literal text where it stood, and `pending` is appended.
    */
   endedSnapshot(pending: string): FormattedString {
+    // Source order is also text offset order
+    const open = Array.from(this.open.values()).flat()
+      .sort((a, b) => a.seq - b.seq);
     let text = "";
     let copied = 0;
-    for (const element of this.open) {
+    // The length of the first k restored start tags is at index k
+    const restored = [0];
+    for (const element of open) {
       text += this.text.slice(copied, element.offset) + element.raw;
       copied = element.offset;
+      restored.push(restored[restored.length - 1] + element.raw.length);
     }
     text += this.text.slice(copied) + pending;
 
+    const shift = (offset: number, seq: number) =>
+      restored[restoredBefore(open, offset, seq)];
     const finished = this.finished.map((f) => {
       const end = f.entity.offset + f.entity.length;
-      const offset = f.entity.offset +
-        this.restoredBefore(f.entity.offset, f.startSeq);
-      const length = end + this.restoredBefore(end, f.endSeq) - offset;
+      const offset = f.entity.offset + shift(f.entity.offset, f.startSeq);
+      const length = end + shift(end, f.endSeq) - offset;
       return { ...f, entity: { ...f.entity, offset, length } };
     });
     return new FormattedString(text, this.collect(finished));
   }
+}
 
-  /**
-   * How much restored start tag text lands before an entity boundary at text
-   * `offset` written by the tag with source order `seq`. A restored tag at
-   * the same offset lands before the boundary when it came first in source.
-   */
-  private restoredBefore(offset: number, seq: number): number {
-    let length = 0;
-    for (const element of this.open) {
-      if (
-        element.offset < offset ||
-        (element.offset === offset && element.seq < seq)
-      ) {
-        length += element.raw.length;
-      }
+/**
+ * How many of the restored start tags `open`, in source order, land before an
+ * entity boundary at text `offset` written by the tag with source order `seq`.
+ * A restored tag at the same offset lands before the boundary when it came
+ * first in source. Those tags are a prefix of `open`, found by binary search.
+ */
+function restoredBefore(
+  open: OpenElement[],
+  offset: number,
+  seq: number,
+): number {
+  let low = 0;
+  let high = open.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const element = open[mid];
+    if (
+      element.offset < offset ||
+      (element.offset === offset && element.seq < seq)
+    ) {
+      low = mid + 1;
+    } else {
+      high = mid;
     }
-    return length;
   }
+  return low;
 }
 
 // ---------------------------------------------------------------------------
