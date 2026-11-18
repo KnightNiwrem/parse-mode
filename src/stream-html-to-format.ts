@@ -600,8 +600,9 @@ function interpretStartTag(
       return url ? { entity: { type: "text_link", url } } : undefined;
     }
     case "tg-emoji": {
-      const id = attrs.get("emoji-id") ?? "";
-      return /^0*[1-9][0-9]*$/.test(id)
+      // Bot API types the id as a plain string; Telegram validates it on send
+      const id = attrs.get("emoji-id");
+      return id
         ? { entity: { type: "custom_emoji", custom_emoji_id: id } }
         : undefined;
     }

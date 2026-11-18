@@ -833,11 +833,18 @@ describe("HTMLStreamParser decisions", () => {
     );
   });
 
-  it("17: requires a non-zero decimal emoji-id", () => {
-    for (const id of ["0", "00", "-5", "12a", "", "1.5", " 5", "0x5"]) {
-      expectLiteral(`<tg-emoji emoji-id="${id}">x</tg-emoji>`);
-    }
+  it("17: requires a non-empty emoji-id and keeps it as written", () => {
+    expectLiteral('<tg-emoji emoji-id="">x</tg-emoji>');
+    expectLiteral("<tg-emoji emoji-id>x</tg-emoji>");
     expectLiteral("<tg-emoji>x</tg-emoji>");
+    for (const id of ["0", "-5", "12a", "1.5", " 5", "0x5"]) {
+      expectParse(`<tg-emoji emoji-id="${id}">x</tg-emoji>`, {
+        text: "x",
+        entities: [
+          { type: "custom_emoji", offset: 0, length: 1, custom_emoji_id: id },
+        ],
+      });
+    }
     expectParse('<tg-emoji emoji-id="007">x</tg-emoji>', {
       text: "x",
       entities: [
